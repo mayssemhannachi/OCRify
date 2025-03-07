@@ -20,7 +20,6 @@ import ThemeToggle from '@/components/theme-toggle.vue'
 
     <!-- Main Content -->
     <div class="relative z-10 min-h-screen flex flex-col items-center pt-56">
-      <h2 class="text-4xl font-bold mb-6 bg-gradient-to-r from-blue-500 to-purple-600 dark:from-blue-400 dark:to-purple-500 inline-block text-transparent bg-clip-text animate-fade-in transform hover:scale-105 transition-transform duration-200">OCRify</h2>
       <h1 class="bg-gradient-to-r text-center from-blue-600 via-blue-800 to-purple-800 dark:from-blue-400 dark:via-blue-600 dark:to-purple-600 font-bold text-6xl inline-block text-transparent bg-clip-text pb-4">
         Le système intelligent <br />de gestion documentaire.
       </h1>

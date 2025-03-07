@@ -1,60 +1,47 @@
 <script lang="ts">
-export const description
-  = 'A login form with email and password. There\'s an option to login with Google and a link to sign up if you don\'t have an account.'
-export const iframeHeight = '600px'
-export const containerClass = 'w-full h-screen flex items-center justify-center px-4'
+export const iframeHeight = '800px'
+export const description = 'A left and right sidebar.'
 </script>
-
 <script setup lang="ts">
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import SidebarLeft from '@/registry/new-york/block/Sidebar15/components/SidebarLeft.vue'
+import SidebarRight from '@/registry/new-york/block/Sidebar15/components/SidebarRight.vue'
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+} from '@/registry/new-york/ui/breadcrumb'
+import { Separator } from '@/registry/new-york/ui/separator'
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from '@/registry/new-york/ui/sidebar'
 </script>
-
 <template>
-  <Card class="mx-auto max-w-sm">
-    <CardHeader>
-      <CardTitle class="text-2xl">
-        Login
-      </CardTitle>
-      <CardDescription>
-        Enter your email below to login to your account
-      </CardDescription>
-    </CardHeader>
-    <CardContent>
-      <div class="grid gap-4">
-        <div class="grid gap-2">
-          <Label for="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            placeholder="m@example.com"
-            required
-          />
+  <SidebarProvider>
+    <SidebarLeft />
+    <SidebarInset>
+      <header class="sticky top-0 flex h-14 shrink-0 items-center gap-2 bg-background">
+        <div class="flex flex-1 items-center gap-2 px-3">
+          <SidebarTrigger />
+          <Separator orientation="vertical" class="mr-2 h-4" />
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbPage class="line-clamp-1">
+                  Project Management & Task Tracking
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
         </div>
-        <div class="grid gap-2">
-          <div class="flex items-center">
-            <Label for="password">Password</Label>
-            <a href="#" class="ml-auto inline-block text-sm underline">
-              Forgot your password?
-            </a>
-          </div>
-          <Input id="password" type="password" required />
-        </div>
-        <Button type="submit" class="w-full">
-          Login
-        </Button>
-        <Button variant="outline" class="w-full">
-          Login with Google
-        </Button>
+      </header>
+      <div class="flex flex-1 flex-col gap-4 p-4">
+        <div class="mx-auto h-24 w-full max-w-3xl rounded-xl bg-muted/50" />
+        <div class="mx-auto h-[100vh] w-full max-w-3xl rounded-xl bg-muted/50" />
       </div>
-      <div class="mt-4 text-center text-sm">
-        Don't have an account?
-        <a href="#" class="underline">
-          Sign up
-        </a>
-      </div>
-    </CardContent>
-  </Card>
+    </SidebarInset>
+    <SidebarRight />
+  </SidebarProvider>
 </template>

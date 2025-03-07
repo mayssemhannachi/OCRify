@@ -3,9 +3,6 @@ export const iframeHeight = '800px'
 export const description = 'A left and right sidebar.'
 </script>
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Upload, FileText, Search, Loader2 } from 'lucide-vue-next'
-import Button from '@/components/ui/button/Button.vue'
 import SidebarLeft from '@/components/SidebarLeft.vue'
 import SidebarRight from '@/components/SidebarRight.vue'
 import {
