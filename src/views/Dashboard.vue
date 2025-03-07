@@ -101,12 +101,12 @@ const pageTitle = computed(() => {
         <template v-if="route.path === '/dashboard'">
           <div class="flex items-center justify-between mb-8">
             <div>
-              <h1 class="text-2xl font-semibold">Upload Documents</h1>
-              <p class="text-muted-foreground mt-1">Process your documents with OCR</p>
+              <h1 class="text-2xl font-semibold">Importer des Documents</h1>
+              <p class="text-muted-foreground mt-1">Traitez vos documents avec l'OCR</p>
             </div>
             <Button @click="processFile" :disabled="!uploadedFile || isProcessing">
               <Search class="w-4 h-4 mr-2" />
-              Process Document
+              {{ isProcessing ? 'Traitement...' : 'Traiter le document' }}
             </Button>
           </div>
 
@@ -114,8 +114,8 @@ const pageTitle = computed(() => {
             <!-- Upload Section -->
             <Card class="lg:col-span-2">
               <CardHeader>
-                <CardTitle>Upload Document</CardTitle>
-                <CardDescription>Upload an image or PDF to extract text</CardDescription>
+                <CardTitle>Importer un Document</CardTitle>
+                <CardDescription>Importez une image ou un PDF pour extraire le texte</CardDescription>
               </CardHeader>
               <CardContent>
                 <div
@@ -142,10 +142,10 @@ const pageTitle = computed(() => {
                       for="file-upload"
                       class="cursor-pointer text-center"
                     >
-                      <span class="font-medium text-primary hover:underline">Click to upload</span>
-                      <span class="text-muted-foreground"> or drag and drop</span>
+                      <span class="font-medium text-primary hover:underline">Cliquez pour importer</span>
+                      <span class="text-muted-foreground"> ou glissez-déposez</span>
                     </label>
-                    <p class="text-xs text-muted-foreground mt-2">PDF, PNG, JPG up to 10MB</p>
+                    <p class="text-xs text-muted-foreground mt-2">PDF, PNG, JPG jusqu'à 10MB</p>
                   </div>
 
                   <div v-else class="w-full">
@@ -153,10 +153,10 @@ const pageTitle = computed(() => {
                       <FileText class="w-8 h-8 text-primary" />
                       <div class="flex-1 min-w-0">
                         <p class="text-sm font-medium truncate">{{ uploadedFile.name }}</p>
-                        <p class="text-xs text-muted-foreground">{{ Math.round(uploadedFile.size / 1024) }} KB</p>
+                        <p class="text-xs text-muted-foreground">{{ Math.round(uploadedFile.size / 1024) }} Ko</p>
                       </div>
                       <Button variant="destructive" size="sm" @click="uploadedFile = null">
-                        Remove
+                        Supprimer
                       </Button>
                     </div>
                   </div>
@@ -168,13 +168,13 @@ const pageTitle = computed(() => {
             <div class="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Supported Formats</CardTitle>
+                  <CardTitle>Formats Supportés</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div class="space-y-4">
                     <div class="flex items-center gap-3">
                       <FileType2 class="w-5 h-5 text-primary" />
-                      <span>PDF Documents</span>
+                      <span>Documents PDF</span>
                     </div>
                     <div class="flex items-center gap-3">
                       <Image class="w-5 h-5 text-primary" />
@@ -186,21 +186,21 @@ const pageTitle = computed(() => {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Tips</CardTitle>
+                  <CardTitle>Conseils</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div class="space-y-3 text-sm">
                     <div class="flex items-start gap-2">
                       <AlertCircle class="w-4 h-4 mt-0.5 text-primary" />
-                      <span>Ensure documents are clear and well-lit</span>
+                      <span>Assurez-vous que les documents sont clairs et bien éclairés</span>
                     </div>
                     <div class="flex items-start gap-2">
                       <AlertCircle class="w-4 h-4 mt-0.5 text-primary" />
-                      <span>Text should be clearly visible and not blurry</span>
+                      <span>Le texte doit être clairement visible et net</span>
                     </div>
                     <div class="flex items-start gap-2">
                       <AlertCircle class="w-4 h-4 mt-0.5 text-primary" />
-                      <span>Maximum file size is 10MB</span>
+                      <span>Taille maximale du fichier : 10MB</span>
                     </div>
                   </div>
                 </CardContent>
@@ -211,14 +211,14 @@ const pageTitle = computed(() => {
           <!-- Results Section -->
           <Card v-if="processedText" class="mt-6 lg:col-span-3">
             <CardHeader>
-              <CardTitle>Extracted Text</CardTitle>
-              <CardDescription>Review and edit the extracted content</CardDescription>
+              <CardTitle>Texte Extrait</CardTitle>
+              <CardDescription>Révisez et modifiez le contenu extrait</CardDescription>
             </CardHeader>
             <CardContent>
               <textarea
                 v-model="processedText"
                 class="w-full h-[200px] p-4 rounded-lg border bg-background resize-none"
-                placeholder="Processed text will appear here..."
+                placeholder="Le texte traité apparaîtra ici..."
               ></textarea>
             </CardContent>
           </Card>
@@ -229,14 +229,14 @@ const pageTitle = computed(() => {
           <div class="flex items-center justify-between mb-8">
             <div>
               <h1 class="text-2xl font-semibold">Corbeille</h1>
-              <p class="text-muted-foreground mt-1">Manage deleted documents</p>
+              <p class="text-muted-foreground mt-1">Gérez les documents supprimés</p>
             </div>
           </div>
           <!-- Add trash content here -->
           <Card>
             <CardContent class="p-6">
               <div class="text-center text-muted-foreground">
-                <p>No deleted documents</p>
+                <p>Aucun document supprimé</p>
               </div>
             </CardContent>
           </Card>
