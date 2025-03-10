@@ -1,10 +1,19 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
 } from '@/components/ui/avatar'
-
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,12 +29,14 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar'
+import Button from '@/components/ui/button/Button.vue'
 import {
   BadgeCheck,
   Bell,
   ChevronsUpDown,
   CreditCard,
   LogOut,
+  Loader2,
   Sparkles,
 } from 'lucide-vue-next'
 
@@ -37,10 +48,50 @@ const props = defineProps<{
   }
 }>()
 
+const router = useRouter()
 const { isMobile } = useSidebar()
+const isLoggingOut = ref(false)
+const showLogoutDialog = ref(false)
+
+const handleLogout = async () => {
+  isLoggingOut.value = true
+  // Here you would typically make an API call to logout
+  // Simulating API call with timeout
+  await new Promise(resolve => setTimeout(resolve, 1000))
+  showLogoutDialog.value = false
+  router.push('/')
+}
 </script>
 
 <template>
+  <Dialog v-model:open="showLogoutDialog">
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Déconnexion</DialogTitle>
+        <DialogDescription>
+          Êtes-vous sûr de vouloir vous déconnecter ?
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button
+          variant="outline"
+          @click="showLogoutDialog = false"
+          :disabled="isLoggingOut"
+        >
+          Annuler
+        </Button>
+        <Button
+          variant="destructive"
+          @click="handleLogout"
+          :disabled="isLoggingOut"
+        >
+          <Loader2 v-if="isLoggingOut" class="mr-2 h-4 w-4 animate-spin" />
+          {{ isLoggingOut ? 'Déconnexion...' : 'Se déconnecter' }}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
   <SidebarMenu>
     <SidebarMenuItem>
       <DropdownMenu>
@@ -52,7 +103,7 @@ const { isMobile } = useSidebar()
             <Avatar class="h-8 w-8 rounded-lg">
               <AvatarImage :src="user.avatar" :alt="user.name" />
               <AvatarFallback class="rounded-lg">
-                CN
+                {{ user.name.split(' ').map(n => n[0]).join('') }}
               </AvatarFallback>
             </Avatar>
             <div class="grid flex-1 text-left text-sm leading-tight">
@@ -73,7 +124,7 @@ const { isMobile } = useSidebar()
               <Avatar class="h-8 w-8 rounded-lg">
                 <AvatarImage :src="user.avatar" :alt="user.name" />
                 <AvatarFallback class="rounded-lg">
-                  CN
+                  {{ user.name.split(' ').map(n => n[0]).join('') }}
                 </AvatarFallback>
               </Avatar>
               <div class="grid flex-1 text-left text-sm leading-tight">
@@ -85,29 +136,29 @@ const { isMobile } = useSidebar()
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem>
-              <Sparkles />
-              Upgrade to Pro
+              <Sparkles class="mr-2 h-4 w-4" />
+              <span>Mise à niveau Pro</span>
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem>
-              <BadgeCheck />
-              Account
+              <BadgeCheck class="mr-2 h-4 w-4" />
+              <span>Compte</span>
             </DropdownMenuItem>
             <DropdownMenuItem>
-              <CreditCard />
-              Billing
+              <CreditCard class="mr-2 h-4 w-4" />
+              <span>Facturation</span>
             </DropdownMenuItem>
             <DropdownMenuItem>
-              <Bell />
-              Notifications
+              <Bell class="mr-2 h-4 w-4" />
+              <span>Notifications</span>
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
-            <LogOut />
-            Log out
+          <DropdownMenuItem @click="showLogoutDialog = true">
+            <LogOut class="mr-2 h-4 w-4" />
+            <span>Déconnexion</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

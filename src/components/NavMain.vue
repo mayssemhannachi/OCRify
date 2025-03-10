@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
+import { RouterLink } from 'vue-router'
 import {
   SidebarMenu,
   SidebarMenuButton,
@@ -20,10 +21,10 @@ defineProps<{
   <SidebarMenu>
     <SidebarMenuItem v-for="item in items" :key="item.title">
       <SidebarMenuButton as-child :is-active="item.isActive">
-        <router-link :to="item.url">
-          <component :is="item.icon" />
+        <RouterLink :to="item.url" class="flex items-center gap-2">
+          <component :is="item.icon" class="h-4 w-4" />
           <span>{{ item.title }}</span>
-        </router-link>
+        </RouterLink>
       </SidebarMenuButton>
     </SidebarMenuItem>
   </SidebarMenu>

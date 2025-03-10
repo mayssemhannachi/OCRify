@@ -1,30 +1,28 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import NavFavorites from '@/components/NavFavorites.vue'
-import NavMain from '@/components/NavMain.vue'
-import NavSecondary from '@/components/NavSecondary.vue'
-import NavWorkspaces from '@/components/NavWorkspaces.vue'
+import {  computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import NavUser from '@/components/NavUser.vue'
+import ThemeToggle from '@/components/ThemeToggle.vue'
 import {
   Sidebar,
   SidebarContent,
   SidebarHeader,
   SidebarRail,
+  SidebarFooter,
 } from '@/components/ui/sidebar'
 import {
   FileText,
   Home,
   Settings,
   FolderOpen,
-  Search,
-  History,
   HelpCircle,
-  FileImage,
-  FolderSearch,
+  Trash2,
+  Image
 } from 'lucide-vue-next'
+import { Button } from '@/components/ui/button'
 
+const route = useRoute()
 const router = useRouter()
-const currentRoute = ref(router.currentRoute.value.path)
 
 // App info
 const appInfo = {
@@ -33,20 +31,26 @@ const appInfo = {
 }
 
 // Main navigation items
-const navItems = [
+const navItems = computed(() => [
   {
-    title: 'Home',
-    url: '/',
-    icon: Home,
-    isActive: currentRoute.value === '/',
-  },
-  {
-    title: 'Dashboard',
+    title: 'Accueil',
     url: '/dashboard',
-    icon: FolderOpen,
-    isActive: currentRoute.value === '/dashboard',
+    icon: Home,
+    isActive: route.path === '/dashboard',
   },
-]
+  {
+    title: 'Documents',
+    url: '/documents',
+    icon: FolderOpen,
+    isActive: route.path === '/documents',
+  },
+  {
+    title: 'Corbeille',
+    url: '/corbeille',
+    icon: Trash2,
+    isActive: route.path === '/corbeille',
+  },
+])
 
 // Secondary navigation
 const secondaryItems = [
@@ -62,70 +66,52 @@ const secondaryItems = [
   },
 ]
 
-// Recent documents
-const favorites = [
+// User data
+const userData = {
+  name: 'John Doe',
+  email: 'john@example.com',
+  avatar: '/avatars/user.jpg',
+}
+
+
+
+const navigation = [
   {
-    name: 'Invoice-2024-03.pdf',
-    url: '#',
-    emoji: '📄',
+    title: 'Accueil',
+    icon: Home,
+    to: '/dashboard'
   },
   {
-    name: 'Contract-Template.pdf',
-    url: '#',
-    emoji: '📝',
+    title: 'Documents',
+    icon: FileText,
+    to: '/documents'
   },
   {
-    name: 'Scan-20240307.jpg',
-    url: '#',
-    emoji: '🖼️',
+    title: 'Scanner',
+    icon: Image,
+    to: '/scanner'
   },
+  {
+    title: 'Corbeille',
+    icon: Trash2,
+    to: '/corbeille'
+  }
 ]
 
-// Document categories
-const workspaces = [
+const bottomNavigation = [
   {
-    name: 'Document Types',
-    emoji: '📁',
-    pages: [
-      {
-        name: 'Invoices & Receipts',
-        url: '#',
-        emoji: '💰',
-      },
-      {
-        name: 'Contracts & Legal',
-        url: '#',
-        emoji: '⚖️',
-      },
-      {
-        name: 'Reports & Analysis',
-        url: '#',
-        emoji: '📊',
-      },
-    ],
+    title: 'Paramètres',
+    icon: Settings,
+    to: '/parametres'
   },
   {
-    name: 'Quick Actions',
-    emoji: '⚡',
-    pages: [
-      {
-        name: 'Scan New Document',
-        url: '#',
-        emoji: '📸',
-      },
-      {
-        name: 'Batch Processing',
-        url: '#',
-        emoji: '🔄',
-      },
-      {
-        name: 'Export Documents',
-        url: '#',
-        emoji: '📤',
-      },
-    ],
-  },
+    title: 'Aide',
+    icon: HelpCircle,
+    to: '/aide'
+  }
 ]
+
+const isActive = (path: string) => route.path === path
 </script>
 
 <template>
@@ -135,13 +121,47 @@ const workspaces = [
         <component :is="appInfo.logo" class="h-6 w-6 text-primary" />
         <span class="font-semibold">{{ appInfo.name }}</span>
       </div>
-      <NavMain :items="navItems" />
+      <nav class="grid gap-1 px-2">
+        <Button
+          v-for="item in navigation"
+          :key="item.to"
+          variant="ghost"
+          class="justify-start"
+          :class="{ 'bg-muted': isActive(item.to) }"
+          @click="router.push(item.to)"
+        >
+          <component :is="item.icon" class="mr-2 h-4 w-4" />
+          {{ item.title }}
+        </Button>
+      </nav>
     </SidebarHeader>
     <SidebarContent>
-      <NavFavorites :favorites="favorites" />
-      <NavWorkspaces :workspaces="workspaces" />
-      <NavSecondary :items="secondaryItems" class="mt-auto" />
+      <div class="mt-auto px-2">
+        <nav class="grid gap-1">
+          <Button
+            v-for="item in bottomNavigation"
+            :key="item.to"
+            variant="ghost"
+            class="justify-start"
+            :class="{ 'bg-muted': isActive(item.to) }"
+            @click="router.push(item.to)"
+          >
+            <component :is="item.icon" class="mr-2 h-4 w-4" />
+            {{ item.title }}
+          </Button>
+        </nav>
+      </div>
     </SidebarContent>
+    <SidebarFooter class="border-t">
+      <div class="flex items-center justify-between p-2">
+        <div class="flex-1">
+          <NavUser :user="userData" />
+        </div>
+        <div class="flex items-center justify-center px-2">
+          <ThemeToggle />
+        </div>
+      </div>
+    </SidebarFooter>
     <SidebarRail />
   </Sidebar>
 </template>
