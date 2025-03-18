@@ -64,9 +64,9 @@ const handleSubmit = async (event: Event) => {
             <div class="space-y-2">
               <div class="flex items-center justify-between">
                 <Label for="password">Mot de passe</Label>
-                <a href="#" class="text-sm text-primary hover:underline">
+                <router-link to="/forgot-password" class="text-sm text-primary hover:underline">
                   Mot de passe oublié?
-                </a>
+                </router-link>
               </div>
               <Input 
                 id="password" 

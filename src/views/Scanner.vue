@@ -44,8 +44,7 @@ import {
 } from '@/components/ui/sidebar'
 import SidebarLeft from '@/components/SidebarLeft.vue'
 import Progress from '@/components/ui/progress/Progress.vue'
-
-
+import RichTextEditor from '@/components/RichTextEditor.vue'
 
 const isProcessing = ref(false)
 const files = ref<File[]>([])
@@ -280,8 +279,6 @@ const startProcessing = async () => {
   isProcessing.value = false
 }
 
-
-
 const startOCR = async () => {
   if (!selectedFile.value && !selectedDocument.value) return
   
@@ -505,99 +502,10 @@ const toggleFormat = (format: EditorFormatKey) => {
               </CardHeader>
               <CardContent>
                 <div class="relative">
-                  <!-- Editor Toolbar -->
-                  <div class="flex items-center gap-1 p-2 border-b bg-muted/50 rounded-t-lg">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      :class="{ 'bg-muted': editorFormatting.bold }"
-                      @click="toggleFormat('bold')"
-                    >
-                      <Bold class="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      :class="{ 'bg-muted': editorFormatting.italic }"
-                      @click="toggleFormat('italic')"
-                    >
-                      <Italic class="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      :class="{ 'bg-muted': editorFormatting.underline }"
-                      @click="toggleFormat('underline')"
-                    >
-                      <Underline class="h-4 w-4" />
-                    </Button>
-                    <Separator orientation="vertical" class="h-4 mx-1" />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      :class="{ 'bg-muted': editorFormatting.align === 'left' }"
-                      @click="toggleFormat('align')"
-                    >
-                      <AlignLeft class="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      :class="{ 'bg-muted': editorFormatting.align === 'center' }"
-                      @click="toggleFormat('align')"
-                    >
-                      <AlignCenter class="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      :class="{ 'bg-muted': editorFormatting.align === 'right' }"
-                      @click="toggleFormat('align')"
-                    >
-                      <AlignRight class="h-4 w-4" />
-                    </Button>
-                    <Separator orientation="vertical" class="h-4 mx-1" />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      :class="{ 'bg-muted': editorFormatting.list }"
-                      @click="toggleFormat('list')"
-                    >
-                      <List class="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      :class="{ 'bg-muted': editorFormatting.orderedList }"
-                      @click="toggleFormat('orderedList')"
-                    >
-                      <ListOrdered class="h-4 w-4" />
-                    </Button>
-                    <Separator orientation="vertical" class="h-4 mx-1" />
-                    <Button variant="ghost" size="sm">
-                      <Undo class="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm">
-                      <Redo class="h-4 w-4" />
-                    </Button>
-                  </div>
-                  
-                  <!-- Editor Content -->
-                  <textarea
+                  <RichTextEditor 
                     v-model="editorContent"
-                    class="min-h-[400px] w-full p-4 rounded-b-lg border bg-background resize-none"
-                    :class="{ 
-                      'pointer-events-none opacity-50': !selectedFile && !selectedDocument,
-                      'text-center': editorFormatting.align === 'center',
-                      'text-right': editorFormatting.align === 'right',
-                      'font-bold': editorFormatting.bold,
-                      'italic': editorFormatting.italic,
-                      'underline': editorFormatting.underline,
-                      'list-decimal': editorFormatting.orderedList,
-                      'list-disc': editorFormatting.list
-                    }"
-                    placeholder="Le texte extrait apparaîtra ici..."
-                  ></textarea>
+                    :disabled="isProcessing || (!selectedFile && !selectedDocument)"
+                  />
                   
                   <div v-if="isProcessing" class="absolute inset-0 bg-background/80 flex items-center justify-center">
                     <Loader2 class="h-8 w-8 animate-spin" />

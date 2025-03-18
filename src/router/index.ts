@@ -8,6 +8,7 @@ import Scanner from '@/views/Scanner.vue'
 import Settings from '@/views/Settings.vue'
 import Help from '@/views/Help.vue'
 import Trash from '@/views/Trash.vue'
+import ForgotPassword from '@/views/ForgotPassword.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -57,6 +58,15 @@ const router = createRouter({
       path: '/corbeille',
       name: 'corbeille',
       component: Trash
+    },
+    {
+      path: '/forgot-password',
+      name: 'ForgotPassword',
+      component: ForgotPassword,
+      meta: {
+        requiresAuth: false,
+        layout: 'auth'
+      }
     }
   ]
 })
