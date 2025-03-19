@@ -3,6 +3,7 @@ import {  computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import NavUser from '@/components/NavUser.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import { AuthService } from '@/services/auth-service'
 import {
   Sidebar,
   SidebarContent,
@@ -67,13 +68,14 @@ const secondaryItems = [
 ]
 
 // User data
-const userData = {
-  name: 'John Doe',
-  email: 'john@example.com',
-  avatar: '/avatars/user.jpg',
-}
-
-
+const userData = computed(() => {
+  const user = AuthService.getUser()
+  return {
+    name: user?.firstName ? `${user.firstName} ${user.lastName}` : 'Utilisateur',
+    email: user?.email || 'utilisateur@example.com',
+    avatar: user?.avatar || '/avatars/user.jpg'
+  }
+})
 
 const navigation = [
   {

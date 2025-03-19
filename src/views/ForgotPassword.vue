@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { useRouter } from 'vue-router'
 import ThemeToggle from '@/components/theme-toggle.vue'
 import { CheckCircle2, ArrowLeft, Eye, EyeOff } from 'lucide-vue-next'
+import { auth } from '@/services/api'
 
 const router = useRouter()
 const email = ref('')
@@ -34,11 +35,10 @@ const handleEmailSubmit = async (event: Event) => {
   error.value = ''
   
   try {
-    // Add your email submission logic here
-    await new Promise(resolve => setTimeout(resolve, 1000)) // Simulate API call
+    await auth.forgotPassword(email.value)
     step.value = 2
-  } catch (err) {
-    error.value = 'Une erreur est survenue. Veuillez réessayer.'
+  } catch (err: any) {
+    error.value = err.response?.data?.message || 'Une erreur est survenue. Veuillez réessayer.'
   } finally {
     isSubmitting.value = false
   }
@@ -55,16 +55,19 @@ const handleResetSubmit = async (event: Event) => {
   error.value = ''
   
   try {
-    // Add your password reset logic here
-    await new Promise(resolve => setTimeout(resolve, 1000)) // Simulate API call
+    await auth.resetPassword({
+      email: email.value,
+      token: resetCode.value,
+      newPassword: newPassword.value
+    })
     step.value = 3
     
     // Reset after 3 seconds and redirect to sign in
     setTimeout(() => {
       router.push('/sign-in')
     }, 3000)
-  } catch (err) {
-    error.value = 'Une erreur est survenue. Veuillez réessayer.'
+  } catch (err: any) {
+    error.value = err.response?.data?.message || 'Une erreur est survenue. Veuillez réessayer.'
   } finally {
     isSubmitting.value = false
   }

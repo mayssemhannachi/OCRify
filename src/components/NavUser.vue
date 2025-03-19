@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { auth } from '@/services/api'
+import { AuthService } from '@/services/auth-service'
 import {
   Avatar,
   AvatarFallback,
@@ -108,11 +110,22 @@ const isSaving = ref(false)
 
 const handleLogout = async () => {
   isLoggingOut.value = true
-  // Here you would typically make an API call to logout
-  // Simulating API call with timeout
-  await new Promise(resolve => setTimeout(resolve, 1000))
-  showLogoutDialog.value = false
-  router.push('/')
+  try {
+    // Close the dialog first
+    showLogoutDialog.value = false
+    
+    // Call the logout service
+    await AuthService.logout()
+    
+    // The navigation will be handled by AuthService
+    // No need to manually redirect
+  } catch (error) {
+    console.error('Logout error:', error)
+    // If there's an error, we still want to clear the UI state
+    showLogoutDialog.value = false
+  } finally {
+    isLoggingOut.value = false
+  }
 }
 
 const handleSaveProfile = async () => {
