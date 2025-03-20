@@ -51,6 +51,8 @@ import {
   Building,
   Calendar,
   Trash2,
+  Eye,
+  EyeOff,
 } from 'lucide-vue-next'
 import {
   Popover,
@@ -89,6 +91,7 @@ const profileForm = ref({
   newPassword: '',
   confirmPassword: '',
   twoFactorEnabled: false,
+  currentPassword: '',
 })
 
 const avatarOptions = [
@@ -107,6 +110,29 @@ const languages = [
 ]
 
 const isSaving = ref(false)
+const passwordError = ref('')
+const passwordSuccess = ref(false)
+
+// Add these refs for password visibility
+const showCurrentPassword = ref(false)
+const showNewPassword = ref(false)
+const showConfirmPassword = ref(false)
+
+// Password validation functions
+const hasMinLength = (password: string): boolean => password.length >= 8
+const hasUpperCase = (password: string): boolean => /[A-Z]/.test(password)
+const hasLowerCase = (password: string): boolean => /[a-z]/.test(password)
+const hasNumber = (password: string): boolean => /\d/.test(password)
+const hasSpecialChar = (password: string): boolean => /[@$!%*?&]/.test(password)
+
+// Password validation function
+const validatePassword = (password: string): boolean => {
+  return hasMinLength(password) && 
+         hasUpperCase(password) && 
+         hasLowerCase(password) && 
+         hasNumber(password) && 
+         hasSpecialChar(password)
+}
 
 const handleLogout = async () => {
   isLoggingOut.value = true
@@ -130,10 +156,47 @@ const handleLogout = async () => {
 
 const handleSaveProfile = async () => {
   isSaving.value = true
+  passwordError.value = ''
+  passwordSuccess.value = false
   try {
-    // Here you would typically make an API call to update the profile
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    showProfileDialog.value = false
+    // If we're on the security tab and passwords are provided
+    if (activeTab.value === 'security' && profileForm.value.newPassword) {
+      // Validate password requirements
+      if (!validatePassword(profileForm.value.newPassword)) {
+        throw new Error('Le mot de passe doit contenir au moins 8 caractères, une majuscule, une minuscule, un chiffre et un caractère spécial')
+      }
+
+      // Validate passwords match
+      if (profileForm.value.newPassword !== profileForm.value.confirmPassword) {
+        throw new Error('Les mots de passe ne correspondent pas')
+      }
+
+      // Call the change password API
+      await auth.changePassword({
+        currentPassword: profileForm.value.currentPassword,
+        newPassword: profileForm.value.newPassword
+      })
+
+      // Clear password fields after successful change
+      profileForm.value.newPassword = ''
+      profileForm.value.confirmPassword = ''
+      profileForm.value.currentPassword = ''
+      
+      // Show success message
+      passwordSuccess.value = true
+      
+      // Reset success message after 3 seconds
+      setTimeout(() => {
+        passwordSuccess.value = false
+        showProfileDialog.value = false
+      }, 3000)
+    } else {
+      // Close the dialog immediately for non-password changes
+      showProfileDialog.value = false
+    }
+  } catch (error: any) {
+    console.error('Error saving profile:', error)
+    passwordError.value = error.message
   } finally {
     isSaving.value = false
   }
@@ -377,25 +440,223 @@ const selectAvatar = (avatarUrl: string) => {
           <TabsContent value="security" class="space-y-4 mt-4">
             <div class="grid gap-4">
               <div class="grid gap-2">
+                <Label for="current-password">Mot de passe actuel</Label>
+                <div class="relative">
+                  <Input
+                    id="current-password"
+                    :type="showCurrentPassword ? 'text' : 'password'"
+                    v-model="profileForm.currentPassword"
+                    placeholder="••••••••"
+                    :disabled="isSaving"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    class="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    @click="showCurrentPassword = !showCurrentPassword"
+                  >
+                    <Eye v-if="!showCurrentPassword" class="h-4 w-4 text-muted-foreground" />
+                    <EyeOff v-else class="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
+              </div>
+
+              <div class="grid gap-2">
                 <Label for="new-password">Nouveau mot de passe</Label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  v-model="profileForm.newPassword"
-                  placeholder="••••••••"
-                  :disabled="isSaving"
-                />
+                <div class="relative">
+                  <Input
+                    id="new-password"
+                    :type="showNewPassword ? 'text' : 'password'"
+                    v-model="profileForm.newPassword"
+                    placeholder="••••••••"
+                    :disabled="isSaving"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    class="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    @click="showNewPassword = !showNewPassword"
+                  >
+                    <Eye v-if="!showNewPassword" class="h-4 w-4 text-muted-foreground" />
+                    <EyeOff v-else class="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
+                <p class="text-sm text-muted-foreground">
+                  Le mot de passe doit contenir :
+                  <ul class="space-y-1 mt-1">
+                    <li class="flex items-center gap-2">
+                      <svg
+                        class="h-4 w-4"
+                        :class="hasMinLength(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          v-if="hasMinLength(profileForm.newPassword)"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 13l4 4L19 7"
+                        />
+                        <path
+                          v-else
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                      <span :class="hasMinLength(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                        Au moins 8 caractères
+                      </span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                      <svg
+                        class="h-4 w-4"
+                        :class="hasUpperCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          v-if="hasUpperCase(profileForm.newPassword)"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 13l4 4L19 7"
+                        />
+                        <path
+                          v-else
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                      <span :class="hasUpperCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                        Au moins une majuscule
+                      </span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                      <svg
+                        class="h-4 w-4"
+                        :class="hasLowerCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          v-if="hasLowerCase(profileForm.newPassword)"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 13l4 4L19 7"
+                        />
+                        <path
+                          v-else
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                      <span :class="hasLowerCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                        Au moins une minuscule
+                      </span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                      <svg
+                        class="h-4 w-4"
+                        :class="hasNumber(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          v-if="hasNumber(profileForm.newPassword)"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 13l4 4L19 7"
+                        />
+                        <path
+                          v-else
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                      <span :class="hasNumber(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                        Au moins un chiffre
+                      </span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                      <svg
+                        class="h-4 w-4"
+                        :class="hasSpecialChar(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          v-if="hasSpecialChar(profileForm.newPassword)"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 13l4 4L19 7"
+                        />
+                        <path
+                          v-else
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                      <span :class="hasSpecialChar(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                        Au moins un caractère spécial (@$!%*?&)
+                      </span>
+                    </li>
+                  </ul>
+                </p>
               </div>
 
               <div class="grid gap-2">
                 <Label for="confirm-password">Confirmer le mot de passe</Label>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  v-model="profileForm.confirmPassword"
-                  placeholder="••••••••"
-                  :disabled="isSaving"
-                />
+                <div class="relative">
+                  <Input
+                    id="confirm-password"
+                    :type="showConfirmPassword ? 'text' : 'password'"
+                    v-model="profileForm.confirmPassword"
+                    placeholder="••••••••"
+                    :disabled="isSaving"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    class="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    @click="showConfirmPassword = !showConfirmPassword"
+                  >
+                    <Eye v-if="!showConfirmPassword" class="h-4 w-4 text-muted-foreground" />
+                    <EyeOff v-else class="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
+              </div>
+
+              <div v-if="passwordError" class="text-sm text-destructive">
+                {{ passwordError }}
+              </div>
+
+              <div v-if="passwordSuccess" class="flex items-center gap-2 text-sm text-green-600 animate-fade-in">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                Mot de passe modifié avec succès !
               </div>
 
               <div class="flex items-center justify-between">

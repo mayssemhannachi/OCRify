@@ -68,6 +68,11 @@ interface ResetPasswordDto {
   newPassword: string
 }
 
+interface ChangePasswordDto {
+  currentPassword: string
+  newPassword: string
+}
+
 // Auth endpoints
 export const auth = {
   register: (data: RegisterDto) =>
@@ -79,6 +84,8 @@ export const auth = {
   forgotPassword: (email: string) => api.post('/api/Auth/forgot-password', { email }),
   resetPassword: (data: ResetPasswordDto) =>
     api.post('/api/Auth/reset-password', data),
+  changePassword: (data: ChangePasswordDto) =>
+    api.post('/api/Auth/change-password', data),
   logout: async () => {
     try {
       const response = await api.post('/api/Auth/logout')

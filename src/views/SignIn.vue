@@ -70,7 +70,21 @@ const handleSubmit = async (e: Event) => {
       }
     } catch (loginError: any) {
       console.error('Login error:', loginError)
-      error.value = loginError.response?.data?.message || 'Email ou mot de passe incorrect'
+      // Translate error messages to French
+      const errorMessage = loginError.response?.data?.message
+      if (errorMessage) {
+        if (errorMessage.includes('Invalid email or password')) {
+          error.value = 'Email ou mot de passe incorrect'
+        } else if (errorMessage.includes('Account is locked')) {
+          error.value = 'Votre compte est verrouillé. Veuillez réessayer plus tard.'
+        } else if (errorMessage.includes('Email not confirmed')) {
+          error.value = 'Veuillez confirmer votre adresse email avant de vous connecter.'
+        } else {
+          error.value = errorMessage
+        }
+      } else {
+        error.value = 'Email ou mot de passe incorrect'
+      }
       // Restore the form data
       formData.value.email = currentEmail
       formData.value.password = currentPassword

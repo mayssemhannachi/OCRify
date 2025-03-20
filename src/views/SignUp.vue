@@ -1,6 +1,6 @@
 <!-- src/views/SignUp.vue -->
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import ThemeToggle from '@/components/theme-toggle.vue'
 import { auth } from '@/services/api'
+import { Eye, EyeOff } from 'lucide-vue-next'
 
 const router = useRouter()
 
@@ -19,14 +20,43 @@ const formData = ref({
   confirmPassword: ''
 })
 
+const showPassword = ref(false)
+const showConfirmPassword = ref(false)
 const error = ref('')
 const success = ref('')
 const loading = ref(false)
+
+// Add password requirements check
+const passwordRequirements = {
+  hasUpperCase: (password: string) => /[A-Z]/.test(password),
+  hasLowerCase: (password: string) => /[a-z]/.test(password),
+  hasNumber: (password: string) => /[0-9]/.test(password),
+  hasSpecialChar: (password: string) => /[!@#$%^&*(),.?":{}|<>]/.test(password),
+  hasMinLength: (password: string) => password.length >= 8
+}
+
+const getPasswordRequirements = computed(() => {
+  const password = formData.value.password
+  return {
+    hasUpperCase: passwordRequirements.hasUpperCase(password),
+    hasLowerCase: passwordRequirements.hasLowerCase(password),
+    hasNumber: passwordRequirements.hasNumber(password),
+    hasSpecialChar: passwordRequirements.hasSpecialChar(password),
+    hasMinLength: passwordRequirements.hasMinLength(password)
+  }
+})
 
 const handleSubmit = async (e: Event) => {
   e.preventDefault()
   error.value = ''
   success.value = ''
+  
+  // Check password requirements before submitting
+  const requirements = getPasswordRequirements.value
+  if (!Object.values(requirements).every(Boolean)) {
+    error.value = 'Le mot de passe ne respecte pas les critères de sécurité'
+    return
+  }
   
   if (formData.value.password !== formData.value.confirmPassword) {
     error.value = 'Les mots de passe ne correspondent pas'
@@ -35,15 +65,25 @@ const handleSubmit = async (e: Event) => {
 
   try {
     loading.value = true
+    console.log('Attempting registration with:', {
+      firstName: formData.value.firstName,
+      lastName: formData.value.lastName,
+      email: formData.value.email,
+      password: formData.value.password
+    })
+    
     const response = await auth.register({
-      name: `${formData.value.firstName} ${formData.value.lastName}`,
+      firstName: formData.value.firstName,
+      lastName: formData.value.lastName,
       email: formData.value.email,
       password: formData.value.password
     })
 
+    console.log('Registration response:', response.data)
+
     // Store the token if returned
-    if (response.data.token) {
-      localStorage.setItem('token', response.data.token)
+    if (response.data?.data?.token) {
+      localStorage.setItem('token', response.data.data.token)
     }
 
     success.value = 'Inscription réussie! Redirection vers la page de connexion...'
@@ -53,11 +93,22 @@ const handleSubmit = async (e: Event) => {
       router.push('/sign-in')
     }, 2000)
   } catch (err: any) {
-    console.error('Registration error:', err)
-    if (err.response?.data?.message?.includes('Username') && err.response?.data?.message?.includes('is already taken')) {
-      error.value = 'Cette adresse email est déjà utilisée'
+    console.error('Registration error details:', {
+      message: err.message,
+      response: err.response?.data,
+      status: err.response?.status
+    })
+    
+    // Display the exact error message from the backend
+    if (err.response?.status === 400) {
+      // If we get a 400 error and there's an email in the form, it's likely a duplicate email
+      if (formData.value.email) {
+        error.value = 'Cette adresse email est déjà utilisée'
+      } else {
+        error.value = err.response?.data?.message || 'Une erreur est survenue lors de l\'inscription. Veuillez réessayer.'
+      }
     } else {
-      error.value = err.response?.data?.message || 'Une erreur est survenue lors de l\'inscription'
+      error.value = 'Une erreur est survenue lors de l\'inscription. Veuillez réessayer.'
     }
   } finally {
     loading.value = false
@@ -139,23 +190,79 @@ const handleSubmit = async (e: Event) => {
             </div>
             <div class="space-y-2">
               <Label for="password">Mot de passe</Label>
-              <Input 
-                id="password" 
-                v-model="formData.password"
-                type="password" 
-                class="w-full"
-                required 
-              />
+              <div class="relative">
+                <Input 
+                  id="password" 
+                  v-model="formData.password"
+                  :type="showPassword ? 'text' : 'password'" 
+                  class="w-full pr-10"
+                  required 
+                />
+                <button
+                  type="button"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  @click="showPassword = !showPassword"
+                >
+                  <Eye v-if="!showPassword" class="h-4 w-4" />
+                  <EyeOff v-else class="h-4 w-4" />
+                </button>
+              </div>
+              <!-- Add password requirements display -->
+              <div class="text-sm space-y-1 mt-1">
+                <p class="text-muted-foreground">Le mot de passe doit contenir :</p>
+                <ul class="space-y-1">
+                  <li class="flex items-center gap-2">
+                    <span :class="getPasswordRequirements.hasUpperCase ? 'text-green-500' : 'text-red-500'">•</span>
+                    <span :class="getPasswordRequirements.hasUpperCase ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins une majuscule
+                    </span>
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <span :class="getPasswordRequirements.hasLowerCase ? 'text-green-500' : 'text-red-500'">•</span>
+                    <span :class="getPasswordRequirements.hasLowerCase ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins une minuscule
+                    </span>
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <span :class="getPasswordRequirements.hasNumber ? 'text-green-500' : 'text-red-500'">•</span>
+                    <span :class="getPasswordRequirements.hasNumber ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins un chiffre
+                    </span>
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <span :class="getPasswordRequirements.hasSpecialChar ? 'text-green-500' : 'text-red-500'">•</span>
+                    <span :class="getPasswordRequirements.hasSpecialChar ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins un caractère spécial (!@#$%^&*(),.?":{}|<>)
+                    </span>
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <span :class="getPasswordRequirements.hasMinLength ? 'text-green-500' : 'text-red-500'">•</span>
+                    <span :class="getPasswordRequirements.hasMinLength ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins 8 caractères
+                    </span>
+                  </li>
+                </ul>
+              </div>
             </div>
             <div class="space-y-2">
               <Label for="confirmPassword">Confirmer le mot de passe</Label>
-              <Input 
-                id="confirmPassword" 
-                v-model="formData.confirmPassword"
-                type="password" 
-                class="w-full"
-                required 
-              />
+              <div class="relative">
+                <Input 
+                  id="confirmPassword" 
+                  v-model="formData.confirmPassword"
+                  :type="showConfirmPassword ? 'text' : 'password'" 
+                  class="w-full pr-10"
+                  required 
+                />
+                <button
+                  type="button"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  @click="showConfirmPassword = !showConfirmPassword"
+                >
+                  <Eye v-if="!showConfirmPassword" class="h-4 w-4" />
+                  <EyeOff v-else class="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
           
