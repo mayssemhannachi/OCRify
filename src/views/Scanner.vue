@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
 import {
   Upload,
@@ -45,11 +45,23 @@ import {
 import SidebarLeft from '@/components/SidebarLeft.vue'
 import Progress from '@/components/ui/progress/Progress.vue'
 import RichTextEditor from '@/components/RichTextEditor.vue'
+import FileUpload from '@/components/ui/file-upload/FileUpload.vue'
+import { ocr, documents } from '@/services/api'
+
+interface Scan {
+  id: number
+  name: string
+  status: 'success' | 'processing' | 'error'
+  timestamp: string
+  accuracy: number
+  text: string
+  type: string
+}
 
 const isProcessing = ref(false)
 const files = ref<File[]>([])
 const dragOver = ref(false)
-const selectedLanguage = ref('fr')
+const selectedLanguage = ref('fra')
 const processingProgress = ref(0)
 const currentFileIndex = ref(0)
 const processedResults = ref<Array<{
@@ -113,70 +125,15 @@ const qualityOptions = [
   { value: 'fast', label: 'Rapide' }
 ]
 
-const handleFileUpload = async (event: Event) => {
-  const input = event.target as HTMLInputElement
-  if (input.files?.length) {
-    isUploading.value = true
-    uploadingFiles.value = Array.from(input.files).map(file => ({
-      name: file.name,
-      progress: 0,
-      status: 'uploading' as const
-    }))
-    
-    for (let i = 0; i < input.files.length; i++) {
-      const file = input.files[i]
-      // Simulate upload progress
-      for (let progress = 0; progress <= 100; progress += 10) {
-        await new Promise(resolve => setTimeout(resolve, 200))
-        uploadingFiles.value[i].progress = progress
-      }
-      uploadingFiles.value[i].status = 'complete'
-      selectedFile.value = file
-      selectedDocument.value = null
-    }
-    
-    isUploading.value = false
-    uploadingFiles.value = []
-  }
-}
+const recentScans = ref<Scan[]>([])
+const ocrMode = ref('accurate')
+const autoRotate = ref(true)
+const enhanceQuality = ref(true)
 
-const handleDrop = async (event: DragEvent) => {
-  event.preventDefault()
-  dragOver.value = false
-  
-  if (event.dataTransfer?.files.length) {
-    isUploading.value = true
-    uploadingFiles.value = Array.from(event.dataTransfer.files).map(file => ({
-      name: file.name,
-      progress: 0,
-      status: 'uploading' as const
-    }))
-    
-    for (let i = 0; i < event.dataTransfer.files.length; i++) {
-      const file = event.dataTransfer.files[i]
-      // Simulate upload progress
-      for (let progress = 0; progress <= 100; progress += 10) {
-        await new Promise(resolve => setTimeout(resolve, 200))
-        uploadingFiles.value[i].progress = progress
-      }
-      uploadingFiles.value[i].status = 'complete'
-      selectedFile.value = file
-      selectedDocument.value = null
-    }
-    
-    isUploading.value = false
-    uploadingFiles.value = []
-  }
-}
-
-const handleDragOver = (event: DragEvent) => {
-  event.preventDefault()
-  dragOver.value = true
-}
-
-const handleDragLeave = () => {
-  dragOver.value = false
-}
+const handleFileUpload = null
+const handleDrop = null
+const handleDragOver = null
+const handleDragLeave = null
 
 const removeFile = (index: number) => {
   files.value.splice(index, 1)
@@ -279,27 +236,154 @@ const startProcessing = async () => {
   isProcessing.value = false
 }
 
+const handleUploadSuccess = async (files: File[]) => {
+  try {
+    // Since we're limiting to one file, we'll only process the first file
+    const file = files[0]
+    selectedFile.value = file
+    
+    // Generate preview if it's an image
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        previewUrl.value = e.target?.result as string
+      }
+      reader.readAsDataURL(file)
+    }
+    
+    // Start OCR processing
+    isProcessing.value = true
+    processingProgress.value = 0
+    
+    // Simulate OCR progress
+    const progressInterval = setInterval(() => {
+      if (processingProgress.value < 90) {
+        processingProgress.value += Math.random() * 10
+      }
+    }, 200)
+    
+    try {
+      // Process the file with OCR
+      const response = await ocr.process(file)
+      clearInterval(progressInterval)
+      processingProgress.value = 100
+      
+      // Update the editor with extracted text
+      editorContent.value = response.data.text || ''
+      extractedText.value = response.data.text || ''
+      
+      // Add to processed results
+      processedResults.value.unshift({
+        fileName: file.name,
+        text: response.data.text || '',
+        confidence: response.data.accuracy || 95,
+        language: selectedLanguage.value,
+        processingTime: 1.5
+      })
+      
+      // Refresh the recent documents list
+      await fetchRecentDocuments()
+      
+    } catch (error) {
+      console.error('OCR processing error:', error)
+    }
+  } catch (error) {
+    console.error('Error processing file:', error)
+  } finally {
+    // Reset processing state
+    isProcessing.value = false
+    processingProgress.value = 0
+  }
+}
+
+const handleUploadError = (error: any) => {
+  console.error('Upload error:', error)
+  // Error is handled by the FileUpload component
+}
+
 const startOCR = async () => {
   if (!selectedFile.value && !selectedDocument.value) return
   
-  isProcessing.value = true
-  
-  // Simulate OCR processing
-  await new Promise(resolve => setTimeout(resolve, 2000))
-  
-  // Mock OCR result
-  const mockText = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
-  extractedText.value = mockText
-  editorContent.value = mockText
-  
-  isProcessing.value = false
+  try {
+    isProcessing.value = true
+    processingProgress.value = 0
+    
+    // Simulate OCR progress
+    const progressInterval = setInterval(() => {
+      if (processingProgress.value < 90) {
+        processingProgress.value += Math.random() * 10
+      }
+    }, 200)
+    
+    if (selectedFile.value) {
+      // Process the file with OCR
+      const response = await ocr.process(selectedFile.value)
+      clearInterval(progressInterval)
+      processingProgress.value = 100
+      
+      // Update the editor with extracted text
+      editorContent.value = response.data.text || ''
+      extractedText.value = response.data.text || ''
+      
+      // Add to processed results
+      processedResults.value.unshift({
+        fileName: selectedFile.value.name,
+        text: response.data.text || '',
+        confidence: response.data.accuracy || 95,
+        language: selectedLanguage.value,
+        processingTime: 1.5 // This could come from the API response
+      })
+    }
+  } catch (error) {
+    console.error('OCR processing error:', error)
+    // Show error in UI
+  } finally {
+    setTimeout(() => {
+      isProcessing.value = false
+      processingProgress.value = 0
+    }, 500) // Keep success state visible briefly
+  }
 }
 
-const handleDocumentSelect = (doc: { fileName: string; text: string }) => {
-  selectedDocument.value = { name: doc.fileName, text: doc.text }
-  selectedFile.value = null
-  previewUrl.value = ''
-  editorContent.value = doc.text
+// Add new ref for recent documents
+const recentDocuments = ref<Array<{
+  id: string
+  name: string
+  status: string
+  createdAt: string
+  language: string
+  type: string
+}>>([])
+
+// Add function to fetch recent documents
+const fetchRecentDocuments = async () => {
+  try {
+    const response = await documents.getRecent()
+    recentDocuments.value = response.data.data
+  } catch (error) {
+    console.error('Error fetching recent documents:', error)
+  }
+}
+
+// Call fetchRecentDocuments when component mounts
+onMounted(() => {
+  fetchRecentDocuments()
+})
+
+// Update handleDocumentSelect to fetch full document details
+const handleDocumentSelect = async (doc: { id: string; name: string }) => {
+  try {
+    const response = await documents.getById(doc.id)
+    selectedDocument.value = {
+      name: response.data.data.name,
+      text: response.data.data.text || ''
+    }
+    selectedFile.value = null
+    previewUrl.value = ''
+    editorContent.value = response.data.data.text || ''
+  } catch (error) {
+    console.error('Error fetching document details:', error)
+  }
 }
 
 // Add type for editor formatting keys
@@ -370,57 +454,36 @@ const toggleFormat = (format: EditorFormatKey) => {
                 </div>
 
                 <!-- Upload Tab Content -->
-                <div v-show="activeTab === 'upload'">
-                  <!-- Upload Area -->
-                  <div
-                    v-if="!isUploading"
-                    @drop="handleDrop"
-                    @dragover="handleDragOver"
-                    @dragleave="handleDragLeave"
-                    class="flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-10 transition-colors"
-                    :class="{
-                      'border-primary/50 bg-primary/5': dragOver,
-                      'hover:border-primary/50': !dragOver
-                    }"
-                  >
-                    <input
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg"
-                      class="hidden"
-                      id="file-upload"
-                      @change="handleFileUpload"
-                    />
-                    
-                    <div class="text-center">
-                      <Upload class="w-12 h-12 mb-4 mx-auto text-muted-foreground" />
-                      <label
-                        for="file-upload"
-                        class="cursor-pointer text-center"
-                      >
-                        <span class="font-medium text-primary hover:underline">Cliquez pour importer</span>
-                        <span class="text-muted-foreground"> ou glissez-déposez</span>
-                      </label>
-                      <p class="text-xs text-muted-foreground mt-2">PDF, PNG, JPG jusqu'à 10MB</p>
+                <div v-show="activeTab === 'upload'" class="space-y-4">
+                  <FileUpload
+                    :multiple="false"
+                    :max-size="10"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    show-preview
+                    @upload-success="handleUploadSuccess"
+                    @upload-error="handleUploadError"
+                  />
+                  
+                  <!-- Selected Document Info -->
+                  <div v-if="selectedFile || selectedDocument" class="mt-4 p-4 bg-muted rounded-lg">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <FileText class="h-5 w-5 text-primary" />
+                        <span class="font-medium">{{ selectedFile?.name || selectedDocument?.name }}</span>
+                      </div>
+                      <Button variant="ghost" size="sm" @click="selectedFile = null; selectedDocument = null">
+                        <X class="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
 
-                  <!-- Upload Progress -->
-                  <div v-else class="space-y-4">
-                    <div class="text-center text-sm text-muted-foreground mb-4">
-                      Importation des fichiers en cours...
+                  <!-- Processing Progress -->
+                  <div v-if="isProcessing" class="mt-4">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-sm font-medium">Traitement en cours...</span>
+                      <Loader2 class="h-4 w-4 animate-spin" />
                     </div>
-                    <div v-for="(file, index) in uploadingFiles" :key="index" class="space-y-2">
-                      <div class="flex items-center justify-between text-sm">
-                        <span class="truncate">{{ file.name }}</span>
-                        <span>{{ file.progress }}%</span>
-                      </div>
-                      <div class="h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          class="h-full bg-primary transition-all duration-300"
-                          :style="{ width: `${file.progress}%` }"
-                        ></div>
-                      </div>
-                    </div>
+                    <Progress :value="processingProgress" class="mb-2" />
                   </div>
                 </div>
 
@@ -437,59 +500,45 @@ const toggleFormat = (format: EditorFormatKey) => {
                   </div>
                   
                   <div class="grid gap-4">
-                    <div
-                      v-for="doc in processedResults"
-                      :key="doc.fileName"
-                      class="group relative flex items-center justify-between p-4 rounded-lg border transition-all hover:border-primary/50 cursor-pointer"
-                      :class="{ 
-                        'border-primary bg-primary/5': selectedDocument?.name === doc.fileName,
-                        'hover:bg-muted/50': selectedDocument?.name !== doc.fileName
-                      }"
-                      @click="handleDocumentSelect(doc)"
-                    >
-                      <div class="flex items-center gap-4">
-                        <div class="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                          <FileText class="h-5 w-5 text-primary" />
+                    <div v-if="recentDocuments.length === 0" class="text-center py-8 text-muted-foreground">
+                      <FileText class="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>Aucun document récent</p>
+                      <p class="text-sm">Commencez par télécharger un document</p>
+                    </div>
+                    
+                    <template v-else>
+                      <div
+                        v-for="doc in recentDocuments"
+                        :key="doc.id"
+                        class="group relative flex items-center justify-between p-4 rounded-lg border transition-all hover:border-primary/50 cursor-pointer"
+                        :class="{ 
+                          'border-primary bg-primary/5': selectedDocument?.name === doc.name,
+                          'hover:bg-muted/50': selectedDocument?.name !== doc.name
+                        }"
+                        @click="handleDocumentSelect(doc)"
+                      >
+                        <div class="flex items-center gap-4">
+                          <div class="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <FileText class="h-5 w-5 text-primary" />
+                          </div>
+                          <div>
+                            <p class="font-medium">{{ doc.name }}</p>
+                            <p class="text-sm text-muted-foreground">
+                              {{ doc.language }} · {{ new Date(doc.createdAt).toLocaleDateString() }}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p class="font-medium">{{ doc.fileName }}</p>
-                          <p class="text-sm text-muted-foreground">
-                            {{ doc.confidence }}% de précision · {{ doc.language }}
-                          </p>
+                        <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="ghost" size="sm" @click.stop="handleDocumentSelect(doc)">
+                            <Eye class="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" @click.stop="startOCR">
+                            <ImageIcon class="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
-                      <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button variant="ghost" size="sm" @click.stop="handleFileSelect(doc)">
-                          <Eye class="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" @click.stop="startOCR">
-                          <ImageIcon class="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
+                    </template>
                   </div>
-                </div>
-
-                <!-- Selected Document Info -->
-                <div v-if="selectedFile || selectedDocument" class="mt-4 p-4 bg-muted rounded-lg">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                      <FileText class="h-5 w-5 text-primary" />
-                      <span class="font-medium">{{ selectedFile?.name || selectedDocument?.name }}</span>
-                    </div>
-                    <Button variant="ghost" size="sm" @click="selectedFile = null; selectedDocument = null">
-                      <X class="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                <!-- Processing Progress -->
-                <div v-if="isProcessing" class="mt-4">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium">Traitement en cours...</span>
-                    <Loader2 class="h-4 w-4 animate-spin" />
-                  </div>
-                  <Progress :value="processingProgress" class="mb-2" />
                 </div>
               </CardContent>
             </Card>

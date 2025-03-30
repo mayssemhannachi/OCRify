@@ -3,6 +3,7 @@ export interface RegisterDto {
   lastName: string
   email: string
   password: string
+  confirmPassword: string
 }
 
 export interface LoginDto {
@@ -20,9 +21,15 @@ export interface User {
 export interface AuthResponse {
   success: boolean
   message: string
-  data: {
+  data?: {
     token: string
-    refreshToken?: string
-    user: User
+    refreshToken: string
+    user: {
+      id: string
+      firstName: string
+      lastName: string
+      email: string
+      role: string
+    }
   }
 } 

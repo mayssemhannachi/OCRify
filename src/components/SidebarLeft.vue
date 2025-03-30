@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import {  computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import NavUser from '@/components/NavUser.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { AuthService } from '@/services/auth-service'
+import { user } from '@/services/api'
 import {
   Sidebar,
   SidebarContent,
@@ -21,9 +22,11 @@ import {
   Image
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { useUserStore } from '@/stores/userStore'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 // App info
 const appInfo = {
@@ -67,13 +70,29 @@ const secondaryItems = [
   },
 ]
 
-// User data
-const userData = computed(() => {
-  const user = AuthService.getUser()
-  return {
-    name: user?.firstName ? `${user.firstName} ${user.lastName}` : 'Utilisateur',
-    email: user?.email || 'utilisateur@example.com',
-    avatar: user?.avatar || '/avatars/user.jpg'
+// Replace user data management with store
+const userData = computed(() => ({
+  name: userStore.userName,
+  email: userStore.userEmail,
+  avatar: userStore.userAvatar
+}))
+
+// Simplified navigation guard that only checks auth
+const navigationGuard = async (to: any, from: any, next: any) => {
+  if (to.meta.requiresAuth && !AuthService.isAuthenticated()) {
+    next('/login')
+    return
+  }
+  next()
+}
+
+// Watch for authentication state changes
+router.beforeEach(navigationGuard)
+
+// Only fetch profile once on mount if authenticated
+onMounted(async () => {
+  if (AuthService.isAuthenticated()) {
+    await userStore.fetchUserProfile()
   }
 })
 
@@ -157,7 +176,7 @@ const isActive = (path: string) => route.path === path
     <SidebarFooter class="border-t">
       <div class="flex items-center justify-between p-2">
         <div class="flex-1">
-          <NavUser :user="userData" />
+          <NavUser v-if="userData" :user="userData" />
         </div>
         <div class="flex items-center justify-center px-2">
           <ThemeToggle />

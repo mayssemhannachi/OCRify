@@ -3,7 +3,7 @@ export const iframeHeight = '800px'
 export const description = 'A left and right sidebar.'
 </script>
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Upload,
@@ -47,6 +47,8 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from '@/components/ui/sidebar'
+import { documents } from '@/services/api'
+import { useToast } from '@/components/ui/toast/use-toast'
 
 const route = useRoute()
 const isProcessing = ref(false)
@@ -74,6 +76,7 @@ const showRestoreAlert = ref(false)
 // Mock data for dashboard statistics
 const stats = ref({
   documentsProcessed: 156,
+  processedDocuments: 0,
   averageAccuracy: 97.2,
   totalStorage: '2.3 GB',
   processingTime: '1.8s',
@@ -102,54 +105,41 @@ interface Document {
 const showPreview = ref(false)
 const selectedDocument = ref<Document | null>(null)
 
-// Update recentActivity with more action-focused details
-const recentActivity = ref<Document[]>([
-  {
-    id: 1,
-    name: 'Facture-EDF-Mars2024.pdf',
-    action: 'scan',
-    status: 'success',
-    accuracy: 98,
-    timestamp: '2024-03-10 14:30',
-    type: 'pdf',
-    details: 'Document scanné avec succès',
-    actionDescription: 'Scan OCR effectué',
-    actionResult: '98% de précision · 2800 caractères extraits'
-  },
-  {
-    id: 2,
-    name: 'Contrat-Location.jpg',
-    action: 'edit',
-    status: 'success',
-    timestamp: '2024-03-10 11:15',
-    type: 'image',
-    details: 'Modification des métadonnées',
-    actionDescription: 'Métadonnées mises à jour',
-    actionResult: 'Tags et informations modifiés'
-  },
-  {
-    id: 3,
-    name: 'Reçu-Amazon.pdf',
-    action: 'scan',
-    status: 'processing',
-    timestamp: '2024-03-10 10:45',
-    type: 'pdf',
-    details: 'Traitement OCR en cours',
-    actionDescription: 'Scan OCR en cours',
-    actionResult: 'Traitement automatique'
-  },
-  {
-    id: 4,
-    name: 'Document-Scan.jpg',
-    action: 'delete',
-    status: 'failed',
-    timestamp: '2024-03-09 16:20',
-    type: 'image',
-    details: 'Échec de la suppression',
-    actionDescription: 'Tentative de suppression',
-    actionResult: 'Erreur: Fichier en cours d\'utilisation'
+// Replace the recentActivity ref with this
+const recentActivity = ref<Document[]>([])
+
+// Add new function to fetch recent documents
+const fetchRecentDocuments = async () => {
+  try {
+    const response = await documents.getRecent()
+    if (response.data?.success && response.data.data) {
+      // Update stats from dashboard data
+      stats.value.documentsProcessed = response.data.data.totalDocuments
+      stats.value.processedDocuments = response.data.data.processedDocuments
+
+      // Map recent documents to activity format
+      recentActivity.value = response.data.data.recentDocuments.map((doc: any) => ({
+        id: doc.id,
+        name: doc.name,
+        action: 'upload',
+        status: doc.status,
+        accuracy: doc.accuracy,
+        timestamp: new Date(doc.createdAt).toLocaleString(),
+        type: doc.type,
+        details: 'Document téléchargé avec succès',
+        actionDescription: 'Téléchargement effectué',
+        actionResult: doc.accuracy ? `${doc.accuracy}% de précision` : 'Document prêt pour traitement OCR'
+      }))
+    }
+  } catch (error) {
+    console.error('Error fetching recent documents:', error)
   }
-])
+}
+
+// Add onMounted hook
+onMounted(() => {
+  fetchRecentDocuments()
+})
 
 // Watch for route changes to reset state when needed
 watch(() => route.path, (newPath) => {
@@ -159,21 +149,203 @@ watch(() => route.path, (newPath) => {
   }
 })
 
-const handleFileUpload = (event: Event) => {
+const { toast } = useToast()
+const isUploading = ref(false)
+const uploadProgress = ref(0)
+
+const handleFileUpload = async (event: Event) => {
   const input = event.target as HTMLInputElement
   if (input.files?.length) {
-    uploadedFile.value = input.files[0]
-    processFile()
+    try {
+      isUploading.value = true
+      uploadProgress.value = 0
+      
+      if (input.files.length > 1) {
+        // Handle bulk upload
+        console.log('🔵 Starting bulk upload of', input.files.length, 'files')
+        const response = await documents.bulkUpload(Array.from(input.files))
+        console.log('✅ Bulk upload response:', response.data)
+        
+        if (response.data?.success) {
+          toast({
+            title: 'Documents téléchargés',
+            description: `${input.files.length} documents ont été téléchargés avec succès.`
+          })
+          
+          // Add each file to recent activity
+          Array.from(input.files).forEach((file, index) => {
+            recentActivity.value.unshift({
+              id: Date.now() + index,
+              name: file.name,
+              action: 'upload',
+              status: 'success',
+              timestamp: new Date().toLocaleString(),
+              type: file.type.includes('pdf') ? 'pdf' : 'image',
+              details: 'Document téléchargé avec succès',
+              actionDescription: 'Téléchargement effectué',
+              actionResult: 'Document prêt pour traitement OCR'
+            })
+          })
+          
+          // Refresh the recent documents list
+          await fetchRecentDocuments()
+        } else {
+          throw new Error('Upload failed: ' + (response.data?.message || 'Unknown error'))
+        }
+      } else {
+        // Handle single file upload
+        const file = input.files[0]
+        console.log('🔵 Starting single file upload:', file.name)
+        const response = await documents.upload(file)
+        console.log('✅ Single file upload response:', response.data)
+        
+        if (response.data?.success) {
+          toast({
+            title: 'Document téléchargé',
+            description: 'Le document a été téléchargé avec succès.'
+          })
+          
+          // Add to recent activity
+          recentActivity.value.unshift({
+            id: Date.now(),
+            name: file.name,
+            action: 'upload',
+            status: 'success',
+            timestamp: new Date().toLocaleString(),
+            type: file.type.includes('pdf') ? 'pdf' : 'image',
+            details: 'Document téléchargé avec succès',
+            actionDescription: 'Téléchargement effectué',
+            actionResult: 'Document prêt pour traitement OCR'
+          })
+        } else {
+          throw new Error('Upload failed: ' + (response.data?.message || 'Unknown error'))
+        }
+      }
+      
+      // Reset file input
+      input.value = ''
+      
+    } catch (error: any) {
+      console.error('❌ Upload error:', error)
+      console.error('❌ Error details:', error.response?.data || error.message)
+      
+      toast({
+        title: 'Erreur de téléchargement',
+        description: error.response?.data?.message || error.message || 'Une erreur est survenue lors du téléchargement.',
+        variant: 'destructive'
+      })
+      
+      // Add failed upload to recent activity
+      recentActivity.value.unshift({
+        id: Date.now(),
+        name: input.files[0].name,
+        action: 'upload',
+        status: 'failed',
+        timestamp: new Date().toLocaleString(),
+        type: input.files[0].type.includes('pdf') ? 'pdf' : 'image',
+        details: 'Échec du téléchargement',
+        actionDescription: 'Tentative de téléchargement',
+        actionResult: 'Erreur: ' + (error.response?.data?.message || error.message || 'Erreur inconnue')
+      })
+    } finally {
+      isUploading.value = false
+      uploadProgress.value = 0
+    }
   }
 }
 
-const handleDrop = (event: DragEvent) => {
+const handleDrop = async (event: DragEvent) => {
   event.preventDefault()
   dragOver.value = false
   
   if (event.dataTransfer?.files.length) {
-    uploadedFile.value = event.dataTransfer.files[0]
-    processFile()
+    try {
+      isUploading.value = true
+      uploadProgress.value = 0
+      
+      if (event.dataTransfer.files.length > 1) {
+        // Handle bulk upload
+        console.log('🔵 Starting bulk upload of', event.dataTransfer.files.length, 'files')
+        const response = await documents.bulkUpload(Array.from(event.dataTransfer.files))
+        console.log('✅ Bulk upload response:', response.data)
+        
+        if (response.data?.success) {
+          toast({
+            title: 'Documents téléchargés',
+            description: `${event.dataTransfer.files.length} documents ont été téléchargés avec succès.`
+          })
+          
+          // Add to recent activity
+          recentActivity.value.unshift({
+            id: Date.now(),
+            name: `${event.dataTransfer.files.length} documents`,
+            action: 'upload',
+            status: 'success',
+            timestamp: new Date().toLocaleString(),
+            type: 'multiple',
+            details: 'Documents téléchargés avec succès',
+            actionDescription: 'Téléchargement multiple effectué',
+            actionResult: `${event.dataTransfer.files.length} documents prêts pour traitement OCR`
+          })
+        } else {
+          throw new Error('Upload failed: ' + (response.data?.message || 'Unknown error'))
+        }
+      } else {
+        // Handle single file upload
+        const file = event.dataTransfer.files[0]
+        console.log('🔵 Starting single file upload:', file.name)
+        const response = await documents.upload(file)
+        console.log('✅ Single file upload response:', response.data)
+        
+        if (response.data?.success) {
+          toast({
+            title: 'Document téléchargé',
+            description: 'Le document a été téléchargé avec succès.'
+          })
+          
+          // Add to recent activity
+          recentActivity.value.unshift({
+            id: Date.now(),
+            name: file.name,
+            action: 'upload',
+            status: 'success',
+            timestamp: new Date().toLocaleString(),
+            type: file.type.includes('pdf') ? 'pdf' : 'image',
+            details: 'Document téléchargé avec succès',
+            actionDescription: 'Téléchargement effectué',
+            actionResult: 'Document prêt pour traitement OCR'
+          })
+        } else {
+          throw new Error('Upload failed: ' + (response.data?.message || 'Unknown error'))
+        }
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Upload error:', error)
+      console.error('❌ Error details:', error.response?.data || error.message)
+      
+      toast({
+        title: 'Erreur de téléchargement',
+        description: error.response?.data?.message || error.message || 'Une erreur est survenue lors du téléchargement.',
+        variant: 'destructive'
+      })
+      
+      // Add failed upload to recent activity
+      recentActivity.value.unshift({
+        id: Date.now(),
+        name: event.dataTransfer.files[0].name,
+        action: 'upload',
+        status: 'failed',
+        timestamp: new Date().toLocaleString(),
+        type: event.dataTransfer.files[0].type.includes('pdf') ? 'pdf' : 'image',
+        details: 'Échec du téléchargement',
+        actionDescription: 'Tentative de téléchargement',
+        actionResult: 'Erreur: ' + (error.response?.data?.message || error.message || 'Erreur inconnue')
+      })
+    } finally {
+      isUploading.value = false
+      uploadProgress.value = 0
+    }
   }
 }
 
@@ -500,10 +672,31 @@ const showViewModal = ref(false)
             </CardHeader>
             <CardContent>
               <div class="grid gap-2">
-                <Button variant="outline" class="w-full justify-start" @click="$router.push('/scanner')">
-                  <Image class="h-4 w-4 mr-2" />
-                  Scanner un document
-                </Button>
+                <div
+                  class="border-2 border-dashed rounded-lg p-4 text-center hover:bg-muted/50 transition-colors cursor-pointer relative"
+                  :class="{ 'border-primary': dragOver }"
+                  @dragover.prevent="handleDragOver"
+                  @dragleave.prevent="handleDragLeave"
+                  @drop.prevent="handleDrop"
+                >
+                  <input
+                    type="file"
+                    multiple
+                    class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    @change="handleFileUpload"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                  />
+                  <Upload class="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                  <p class="text-sm font-medium">Glissez vos documents ici</p>
+                  <p class="text-xs text-muted-foreground mt-1">ou cliquez pour sélectionner</p>
+                  <p class="text-xs text-muted-foreground mt-1">PDF, JPG, PNG (max 10MB)</p>
+                  
+                  <div v-if="isUploading" class="mt-4">
+                    <Progress :value="uploadProgress" class="h-1" />
+                    <p class="text-xs text-muted-foreground mt-1">Téléchargement en cours...</p>
+                  </div>
+                </div>
+                
                 <Button variant="outline" class="w-full justify-start" @click="$router.push('/documents')">
                   <FolderOpen class="h-4 w-4 mr-2" />
                   Parcourir les documents
@@ -527,25 +720,33 @@ const showViewModal = ref(false)
             </CardHeader>
             <CardContent>
               <div class="space-y-4">
-                <div v-for="doc in recentActivity.slice(0, 4)" :key="doc.id" 
-                  class="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
-                >
-                  <div class="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
-                    <FileText class="h-5 w-5 text-primary" />
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium truncate">{{ doc.name }}</p>
-                    <p class="text-xs text-muted-foreground">{{ doc.timestamp }}</p>
-                  </div>
-                  <div class="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" @click.stop="handlePreview(doc)">
-                      <Eye class="h-4 w-4" />
-                    </Button>
-                  </div>
+                <div v-if="recentActivity.length === 0" class="text-center py-8 text-muted-foreground">
+                  <FileText class="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>Aucune activité récente</p>
+                  <p class="text-sm">Commencez par télécharger un document</p>
                 </div>
-                <Button variant="ghost" class="w-full justify-center text-sm" @click="$router.push('/documents')">
-                  Voir tous les documents
-                </Button>
+                
+                <template v-else>
+                  <div v-for="doc in recentActivity.slice(0, 4)" :key="doc.id" 
+                    class="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                  >
+                    <div class="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
+                      <FileText class="h-5 w-5 text-primary" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium truncate">{{ doc.name }}</p>
+                      <p class="text-xs text-muted-foreground">{{ doc.timestamp }}</p>
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" @click.stop="handlePreview(doc)">
+                        <Eye class="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <Button variant="ghost" class="w-full justify-center text-sm" @click="$router.push('/documents')">
+                    Voir tous les documents
+                  </Button>
+                </template>
               </div>
             </CardContent>
           </Card>
@@ -561,33 +762,41 @@ const showViewModal = ref(false)
             </CardHeader>
             <CardContent>
               <div class="space-y-4">
-                <div
-                  v-for="activity in recentActivity"
-                  :key="activity.id"
-                  class="flex items-start gap-4 p-3 rounded-lg bg-muted/50"
-                >
-                  <div class="h-8 w-8 rounded-full bg-background flex items-center justify-center shrink-0">
-                    <component
-                      :is="getActionIcon(activity.action)"
-                      class="h-4 w-4"
-                      :class="getActionColor(activity.action, activity.status)"
-                    />
-                  </div>
-                  <div class="flex-1 min-w-0 space-y-1">
-                    <div class="flex items-center gap-2">
-                      <span class="font-medium text-sm">{{ activity.actionDescription }}</span>
-                      <span v-if="activity.accuracy" class="text-xs bg-primary/10 px-2 py-0.5 rounded-full">
-                        {{ activity.accuracy }}%
-                      </span>
-                    </div>
-                    <p class="text-sm text-muted-foreground">{{ activity.actionResult }}</p>
-                    <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{{ activity.timestamp }}</span>
-                      <span>·</span>
-                      <span class="truncate">{{ activity.name }}</span>
-                    </div>
-                  </div>
+                <div v-if="recentActivity.length === 0" class="text-center py-8 text-muted-foreground">
+                  <Clock class="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>Aucune activité récente</p>
+                  <p class="text-sm">L'historique s'affichera ici</p>
                 </div>
+                
+                <template v-else>
+                  <div
+                    v-for="activity in recentActivity"
+                    :key="activity.id"
+                    class="flex items-start gap-4 p-3 rounded-lg bg-muted/50"
+                  >
+                    <div class="h-8 w-8 rounded-full bg-background flex items-center justify-center shrink-0">
+                      <component
+                        :is="getActionIcon(activity.action)"
+                        class="h-4 w-4"
+                        :class="getActionColor(activity.action, activity.status)"
+                      />
+                    </div>
+                    <div class="flex-1 min-w-0 space-y-1">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-sm">{{ activity.actionDescription }}</span>
+                        <span v-if="activity.accuracy" class="text-xs bg-primary/10 px-2 py-0.5 rounded-full">
+                          {{ activity.accuracy }}%
+                        </span>
+                      </div>
+                      <p class="text-sm text-muted-foreground">{{ activity.actionResult }}</p>
+                      <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{{ activity.timestamp }}</span>
+                        <span>·</span>
+                        <span class="truncate">{{ activity.name }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
               </div>
             </CardContent>
           </Card>

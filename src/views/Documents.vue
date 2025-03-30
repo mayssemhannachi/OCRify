@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Search,
@@ -43,8 +43,20 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar'
 import SidebarLeft from '@/components/SidebarLeft.vue'
+import FileUpload from '@/components/ui/file-upload/FileUpload.vue'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { documents as documentsService } from '@/services/api'
+import type { DocumentDto, BackendDocumentDto, DocumentSearchDto } from '@/types/documents'
+import { useToast } from '@/components/ui/toast/use-toast'
 
 const route = useRoute()
+const { toast } = useToast()
 const searchQuery = ref('')
 const showFilters = ref(false)
 const showExpandedFilters = ref(false)
@@ -58,172 +70,601 @@ const dateRange = ref({
 const viewMode = ref<'grid' | 'list'>('grid')
 const sortBy = ref('date')
 
-interface Document {
-  id: number
-  name: string
-  type: string
-  date: string
-  size: string
-  status: string
-  preview: string
-  extractedText: string
-  lastModified: string
-  createdBy: string
-  tags: string[]
-  language: string
-  ocrConfidence: number
-  thumbnail: string
-  favorite: boolean
+// Use the DocumentDto type from the API
+type Document = DocumentDto & {
+  documentUrl: string
 }
 
-const documents = ref<Document[]>([
-  {
-    id: 1,
-    name: 'Facture-Mars2024.pdf',
-    type: 'pdf',
-    date: '2024-03-10',
-    size: '1.2 Mo',
-    status: 'Traité',
-    preview: '/previews/invoice.png',
-    extractedText: '2800 caractères',
-    lastModified: '2024-03-10 14:30',
-    createdBy: 'John Doe',
-    tags: ['facture', 'finance'],
-    language: 'fr',
-    ocrConfidence: 98,
-    thumbnail: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDABQODxIPDRQSEBIXFRQdHx4eHRoaHSQtJSEkLzYvLy0vLi44QzxAOEE4Ny42RUhMSk1RV11dXjs+Y2NqZWlLSkL/2wBDAR...',
-    favorite: true
-  },
-  {
-    id: 2,
-    name: 'Contrat-Client.pdf',
-    type: 'pdf',
-    date: '2024-03-08',
-    size: '2.5 Mo',
-    status: 'Traité',
-    preview: '/previews/contract.png',
-    extractedText: '5200 caractères',
-    lastModified: '2024-03-08 09:15',
-    createdBy: 'Jane Smith',
-    tags: ['contrat', 'client'],
-    language: 'fr',
-    ocrConfidence: 95,
-    thumbnail: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDABQODxIPDRQSEBIXFRQdHx4eHRoaHSQtJSEkLzYvLy0vLi44QzxAOEE4Ny42RUhMSk1RV11dXjs+Y2NqZWlLSkL/2wBDAR...',
-    favorite: false
-  },
-  {
-    id: 3,
-    name: 'Scan-Document.jpg',
-    type: 'image',
-    date: '2024-03-07',
-    size: '3.1 Mo',
-    status: 'En attente',
-    preview: '/previews/scan.png',
-    extractedText: 'En attente',
-    lastModified: '2024-03-07 16:45',
-    createdBy: 'John Doe',
-    tags: ['scan', 'document'],
-    language: 'fr',
-    ocrConfidence: 0,
-    thumbnail: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDABQODxIPDRQSEBIXFRQdHx4eHRoaHSQtJSEkLzYvLy0vLi44QzxAOEE4Ny42RUhMSk1RV11dXjs+Y2NqZWlLSkL/2wBDAR...',
-    favorite: false
-  },
-  {
-    id: 4,
-    name: 'Rapport-Février.pdf',
-    type: 'pdf',
-    date: '2024-02-28',
-    size: '1.8 Mo',
-    status: 'Traité',
-    preview: '/previews/report.png',
-    extractedText: '3500 caractères',
-    lastModified: '2024-02-28 11:20',
-    createdBy: 'Alice Johnson',
-    tags: ['rapport', 'mensuel'],
-    language: 'fr',
-    ocrConfidence: 97,
-    thumbnail: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDABQODxIPDRQSEBIXFRQdHx4eHRoaHSQtJSEkLzYvLy0vLi44QzxAOEE4Ny42RUhMSk1RV11dXjs+Y2NqZWlLSkL/2wBDAR...',
-    favorite: false
-  },
-  {
-    id: 5,
-    name: 'Notes-Réunion.pdf',
-    type: 'pdf',
-    date: '2024-02-25',
-    size: '0.8 Mo',
-    status: 'Traité',
-    preview: '/previews/notes.png',
-    extractedText: '1500 caractères',
-    lastModified: '2024-02-25 15:00',
-    createdBy: 'Bob Wilson',
-    tags: ['notes', 'réunion'],
-    language: 'fr',
-    ocrConfidence: 96,
-    thumbnail: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDABQODxIPDRQSEBIXFRQdHx4eHRoaHSQtJSEkLzYvLy0vLi44QzxAOEE4Ny42RUhMSk1RV11dXjs+Y2NqZWlLSkL/2wBDAR...',
-    favorite: false
+const documents = ref<Document[]>([])
+const isLoading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(19) // Changed from 3 to 19 to show all documents
+const totalDocuments = ref(0)
+const selectedFavorites = ref(false)
+
+// Add new helper function for date formatting
+const formatDate = (dateString: string): string => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
+// Update the formatFileSize function to be more precise
+const formatFileSize = (bytes: number): string => {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = bytes
+  let unitIndex = 0
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex++
   }
-])
+  return `${size.toFixed(2)} ${units[unitIndex]}`
+}
+
+// Add helper function to construct file URLs
+const getFileUrl = (path: string, docId: string): string => {
+  if (!path || !docId) return ''
+  // Use the authenticated endpoint with the document ID
+  return `${import.meta.env.VITE_API_URL}/api/Documents/${docId}/download`
+}
+
+// Update the fetchDocuments function
+const fetchDocuments = async () => {
+  try {
+    console.log('Starting document fetch...');
+    console.log('Current status:', selectedStatus.value);
+    console.log('Type of selectedStatus:', typeof selectedStatus.value);
+    isLoading.value = true;
+    
+    // Always include these parameters
+    const searchParams: DocumentSearchDto = {
+      page: currentPage.value,
+      pageSize: pageSize.value,
+      includeDeleted: selectedStatus.value === 'Deleted', // Explicitly set based on status
+      // Only set status if it's not 'all' and not 'Deleted'
+      ...(selectedStatus.value !== 'all' && selectedStatus.value !== 'Deleted' && {
+        status: selectedStatus.value === 'Complete' ? 4 : selectedStatus.value === 'Uploaded' ? 0 : undefined
+      })
+    };
+
+    // Add optional filters only if they are set
+    if (searchQuery.value.trim()) {
+      searchParams.searchTerm = searchQuery.value.trim();
+    }
+    if (selectedType.value !== 'all') {
+      searchParams.type = selectedType.value;
+    }
+    if (selectedLanguage.value !== 'all') {
+      searchParams.language = selectedLanguage.value;
+    }
+    if (dateRange.value.start && dateRange.value.end) {
+      searchParams.dateFrom = new Date(dateRange.value.start);
+      searchParams.dateTo = new Date(dateRange.value.end);
+    }
+    if (selectedFavorites.value) {
+      searchParams.favoritesOnly = true;
+    }
+
+    // Log the exact parameters being sent
+    console.log('Making API request with params:', {
+      ...searchParams,
+      dateFrom: searchParams.dateFrom instanceof Date ? searchParams.dateFrom.toISOString() : searchParams.dateFrom,
+      dateTo: searchParams.dateTo instanceof Date ? searchParams.dateTo.toISOString() : searchParams.dateTo,
+      includeDeleted: searchParams.includeDeleted
+    });
+
+    const response = await documentsService.getAll(searchParams);
+    console.log('API response received:', response);
+
+    if (response.success && response.data) {
+      console.log('Processing response data:', {
+        totalCount: response.data.totalCount,
+        itemsCount: response.data.items.length
+      });
+      
+      documents.value = response.data.items.map((doc: BackendDocumentDto) => ({
+        id: doc.id,
+        name: doc.fileName,
+        path: doc.filePath,
+        size: doc.fileSize,
+        type: doc.fileType,
+        status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : 'Deleted',
+        language: doc.language,
+        topic: doc.topic,
+        description: doc.description,
+        tags: doc.tags,
+        isFavorite: doc.isFavorite,
+        createdAt: doc.uploadDate,
+        updatedAt: doc.lastModified || doc.uploadDate,
+        accuracy: doc.accuracy,
+        documentUrl: getFileUrl(doc.filePath, doc.id),
+        isDeleted: doc.isDeleted
+      }));
+      totalDocuments.value = response.data.totalCount;
+      console.log('Documents processed and updated:', {
+        documentsCount: documents.value.length,
+        totalCount: totalDocuments.value
+      });
+    } else {
+      console.error('Invalid response format:', response);
+      documents.value = [];
+      totalDocuments.value = 0;
+    }
+  } catch (error) {
+    console.error('Failed to fetch documents:', error);
+    documents.value = [];
+    totalDocuments.value = 0;
+  } finally {
+    isLoading.value = false;
+    console.log('Document fetch completed');
+  }
+};
+
+// Call fetchDocuments when component mounts
+onMounted(() => {
+  console.log('Component mounted, initial status:', selectedStatus.value);
+  console.log('Type of initial status:', typeof selectedStatus.value);
+  fetchDocuments();
+})
+
+// Add watcher for selectedStatus
+watch(selectedStatus, (newStatus) => {
+  console.log('Status changed to:', newStatus);
+  console.log('Type of newStatus:', typeof newStatus);
+  console.log('Value of newStatus:', newStatus);
+  fetchDocuments();
+}, { immediate: true });
 
 const showUploadModal = ref(false)
 const dragOver = ref(false)
-const selectedFavorites = ref(false)
 const isUploading = ref(false)
 const uploadProgress = ref(0)
 const uploadingFiles = ref<{ name: string; progress: number; status: 'uploading' | 'complete' | 'error' }[]>([])
 
 const sortedAndFilteredDocuments = computed(() => {
-  return documents.value
+  console.log('Filtering documents with status:', selectedStatus.value);
+  const filtered = documents.value
     .filter(doc => {
-      const matchesSearch = doc.name.toLowerCase().includes(searchQuery.value.toLowerCase())
+      const matchesSearch = doc.name?.toLowerCase().includes(searchQuery.value.toLowerCase())
       const matchesType = selectedType.value === 'all' || doc.type === selectedType.value
-      const matchesStatus = selectedStatus.value === 'all' || doc.status === selectedStatus.value
       const matchesLanguage = selectedLanguage.value === 'all' || doc.language === selectedLanguage.value
-      const matchesFavorites = !selectedFavorites.value || doc.favorite
+      const matchesFavorites = !selectedFavorites.value || doc.isFavorite
       
       let matchesDate = true
       if (dateRange.value.start && dateRange.value.end) {
-        const docDate = new Date(doc.date)
+        const docDate = new Date(doc.createdAt)
         const start = new Date(dateRange.value.start)
         const end = new Date(dateRange.value.end)
         matchesDate = docDate >= start && docDate <= end
       }
       
-      return matchesSearch && matchesType && matchesStatus && matchesLanguage && matchesDate && matchesFavorites
+      // Check if document is deleted using IsDeleted property
+      const isDeleted = doc.isDeleted
+      console.log('Document filtering:', {
+        docId: doc.id,
+        docName: doc.name,
+        isDeleted,
+        selectedStatus: selectedStatus.value,
+        matchesSearch,
+        matchesType,
+        matchesLanguage,
+        matchesDate,
+        matchesFavorites
+      });
+      
+      // Show deleted documents only when status filter is 'Deleted'
+      if (selectedStatus.value === 'Deleted') {
+        return matchesSearch && matchesType && matchesLanguage && matchesDate && matchesFavorites && isDeleted
+      }
+      
+      // Show non-deleted documents when status filter is not 'Deleted'
+      if (selectedStatus.value === 'all') {
+        return matchesSearch && matchesType && matchesLanguage && matchesDate && matchesFavorites && !isDeleted
+      }
+      
+      // For other status filters, show only matching non-deleted documents
+      return matchesSearch && matchesType && matchesLanguage && matchesDate && matchesFavorites && !isDeleted && doc.status === selectedStatus.value
     })
     .sort((a, b) => {
       if (sortBy.value === 'date') {
-        return new Date(b.date).getTime() - new Date(a.date).getTime()
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       } else if (sortBy.value === 'name') {
         return a.name.localeCompare(b.name)
       } else if (sortBy.value === 'size') {
-        return parseFloat(b.size) - parseFloat(a.size)
+        return b.size - a.size
       } else if (sortBy.value === 'confidence') {
-        return b.ocrConfidence - a.ocrConfidence
+        return (b.accuracy || 0) - (a.accuracy || 0)
       }
       return 0
     })
+  
+  console.log('Filtered documents count:', filtered.length);
+  return filtered;
 })
 
 const showViewModal = ref(false)
 const selectedDocument = ref<Document | null>(null)
+const imageLoading = ref(true)
+const errorToastShown = ref(false)
 
-const handleView = (docId: number) => {
-  const doc = documents.value.find(d => d.id === docId)
-  if (doc) {
-    selectedDocument.value = doc
-    showViewModal.value = true
+// Update image error handler
+const handleImageError = (event: Event) => {
+  const img = event.target as HTMLImageElement
+  img.src = '' // Clear the source to show the fallback
+  imageLoading.value = false
+  
+  // Only show error toast once
+  if (!errorToastShown.value) {
+    errorToastShown.value = true
+    toast({
+      title: 'Erreur de chargement',
+      description: 'Impossible de charger l\'image. Veuillez vérifier votre authentification.',
+      variant: 'destructive'
+    })
   }
 }
 
-const handleDownload = (docId: number) => {
-  // Implement document download logic
-  console.log('Downloading document:', docId)
+// Update the handleView function
+const handleView = async (docId: string) => {
+  try {
+    const response = await documentsService.getById(docId)
+    if (response.data?.success && response.data.data) {
+      const doc = response.data.data
+      
+      // Get the file content using the authenticated endpoint
+      try {
+        // For images, fetch the blob and create a URL
+        if (doc.fileType?.toLowerCase().includes('image')) {
+          const fileResponse = await documentsService.getFile(docId)
+          const blob = new Blob([fileResponse.data], { type: doc.fileType })
+          const imageUrl = URL.createObjectURL(blob)
+          
+      selectedDocument.value = {
+            id: doc.id,
+            name: doc.fileName,
+            path: doc.filePath,
+            size: doc.fileSize,
+            type: doc.fileType,
+            status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : 'Deleted',
+            language: doc.language,
+            topic: doc.topic,
+            description: doc.description,
+            tags: doc.tags,
+            isFavorite: doc.isFavorite,
+            createdAt: doc.uploadDate,
+            updatedAt: doc.lastModified || doc.uploadDate,
+            accuracy: doc.accuracy,
+            documentUrl: imageUrl,
+            isDeleted: doc.isDeleted
+      }
+      showViewModal.value = true
+          errorToastShown.value = false // Reset error toast flag
+          return
+        }
+
+        // For other file types, fetch the content
+        const fileResponse = await documentsService.getFile(docId)
+        if (fileResponse.data) {
+          const blob = new Blob([fileResponse.data], { type: doc.fileType })
+          selectedDocument.value = {
+            id: doc.id,
+            name: doc.fileName,
+            path: doc.filePath,
+            size: doc.fileSize,
+            type: doc.fileType,
+            status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : 'Deleted',
+            language: doc.language,
+            topic: doc.topic,
+            description: doc.description,
+            tags: doc.tags,
+            isFavorite: doc.isFavorite,
+            createdAt: doc.uploadDate,
+            updatedAt: doc.lastModified || doc.uploadDate,
+            accuracy: doc.accuracy,
+            documentUrl: URL.createObjectURL(blob),
+            isDeleted: doc.isDeleted
+          }
+          showViewModal.value = true
+          }
+        } catch (error) {
+        console.error('Error fetching file content:', error)
+        // Show error toast and still open the panel with placeholder
+        selectedDocument.value = {
+          id: doc.id,
+          name: doc.fileName,
+          path: doc.filePath,
+          size: doc.fileSize,
+          type: doc.fileType,
+          status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : 'Deleted',
+          language: doc.language,
+          topic: doc.topic,
+          description: doc.description,
+          tags: doc.tags,
+          isFavorite: doc.isFavorite,
+          createdAt: doc.uploadDate,
+          updatedAt: doc.lastModified || doc.uploadDate,
+          accuracy: doc.accuracy,
+          documentUrl: '', // Empty URL for placeholder
+          isDeleted: doc.isDeleted
+        }
+        showViewModal.value = true
+        toast({
+          title: 'Erreur de chargement',
+          description: 'Impossible de charger le contenu du document.',
+          variant: 'destructive'
+        })
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching document details:', error)
+    toast({
+      title: 'Erreur',
+      description: 'Impossible de charger les détails du document.',
+      variant: 'destructive'
+    })
+  }
 }
 
-const handleDelete = (docId: number) => {
-  // Move to trash instead of deleting
-  documents.value = documents.value.filter(doc => doc.id !== docId)
+// Update the closeViewModal function to revoke the blob URL
+const closeViewModal = () => {
+  if (selectedDocument.value?.documentUrl && selectedDocument.value.documentUrl.startsWith('blob:')) {
+    URL.revokeObjectURL(selectedDocument.value.documentUrl)
+  }
+  showViewModal.value = false
+  selectedDocument.value = null
+  errorToastShown.value = false
 }
+
+// Update the handleDownload function
+const handleDownload = async (docId: string) => {
+  try {
+    const response = await documentsService.getById(docId)
+    if (response.data?.success && response.data.data) {
+      const doc = response.data.data
+      // Use the download endpoint with the document ID
+      const downloadUrl = `${import.meta.env.VITE_API_URL}/api/Documents/${docId}/download`
+      // Create a temporary link to download the file
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = doc.fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
+  } catch (error) {
+    console.error('Error downloading document:', error)
+    toast({
+      title: 'Erreur',
+      description: 'Impossible de télécharger le document.',
+      variant: 'destructive'
+    })
+  }
+}
+
+// Add new ref for delete confirmation
+const showDeleteConfirmation = ref(false)
+const documentToDelete = ref<string | null>(null)
+const showBulkDeleteConfirmation = ref(false)
+
+// Update the handleDelete function
+const handleDelete = async (docId: string) => {
+  try {
+    await documentsService.delete(docId)
+    toast({
+      title: 'Document supprimé',
+      description: 'Le document a été déplacé dans la corbeille.',
+    })
+    // Refresh the documents list to update the status
+    await fetchDocuments()
+  } catch (error) {
+    console.error('Error deleting document:', error)
+    toast({
+      title: 'Erreur',
+      description: 'Impossible de supprimer le document.',
+      variant: 'destructive',
+    })
+  }
+}
+
+// Update the handleRestore function
+const handleRestore = async (docId: string) => {
+  try {
+    const response = await documentsService.restore(docId)
+    if (response.success) {
+      toast({
+        title: 'Document restauré',
+        description: 'Le document a été restauré avec succès.',
+      })
+    await fetchDocuments()
+    } else {
+      throw new Error(response.message || 'Une erreur est survenue lors de la restauration du document.')
+    }
+  } catch (error: any) {
+    console.error('Error restoring document:', error)
+    toast({
+      title: 'Erreur',
+      description: error.message || 'Impossible de restaurer le document.',
+      variant: 'destructive',
+    })
+  }
+}
+
+// Update the handlePermanentDelete function
+const handlePermanentDelete = async (docId: string) => {
+  documentToDelete.value = docId
+  showDeleteConfirmation.value = true
+}
+
+// Add new function for confirmed permanent delete
+const confirmPermanentDelete = async () => {
+  if (!documentToDelete.value) return
+  
+  try {
+    await documentsService.permanentDelete(documentToDelete.value)
+    toast({
+      title: 'Document supprimé définitivement',
+      description: 'Le document a été supprimé définitivement.',
+    })
+    await fetchDocuments()
+  } catch (error) {
+    console.error('Error permanently deleting document:', error)
+    toast({
+      title: 'Erreur',
+      description: 'Impossible de supprimer définitivement le document.',
+      variant: 'destructive',
+    })
+  } finally {
+    showDeleteConfirmation.value = false
+    documentToDelete.value = null
+  }
+}
+
+// Add bulk operations
+const selectedDocuments = ref<string[]>([])
+const isBulkMode = ref(false)
+
+const handleBulkDelete = async () => {
+  try {
+    // Convert the array to a plain array and ensure it's not empty
+    const plainArray = [...selectedDocuments.value]
+    if (plainArray.length === 0) {
+      toast({
+        title: 'Erreur',
+        description: 'Veuillez sélectionner au moins un document.',
+        variant: 'destructive',
+      })
+      return
+    }
+    
+    // Log the array being sent
+    console.log('Sending bulk delete request with array:', plainArray)
+    
+    // Send the array directly without wrapping it in an object
+    await documentsService.bulkDelete(plainArray)
+    
+    toast({
+      title: 'Documents supprimés',
+      description: 'Les documents ont été déplacés dans la corbeille.',
+    })
+    selectedDocuments.value = []
+    isBulkMode.value = false
+    await fetchDocuments()
+  } catch (error) {
+    console.error('Error bulk deleting documents:', error)
+    toast({
+      title: 'Erreur',
+      description: 'Impossible de supprimer les documents.',
+      variant: 'destructive',
+    })
+  }
+}
+
+const handleBulkRestore = async () => {
+  try {
+    const response = await documentsService.bulkRestore(selectedDocuments.value)
+    if (response.success) {
+      toast({
+        title: 'Documents restaurés',
+        description: `${selectedDocuments.value.length} document(s) ont été restauré(s) avec succès.`,
+      })
+    selectedDocuments.value = []
+      isBulkMode.value = false
+      await fetchDocuments()
+    } else {
+      throw new Error(response.message || 'Une erreur est survenue lors de la restauration des documents.')
+    }
+  } catch (error: any) {
+    console.error('Error bulk restoring documents:', error)
+    toast({
+      title: 'Erreur',
+      description: error.message || 'Impossible de restaurer les documents.',
+      variant: 'destructive',
+    })
+  }
+}
+
+// Update the handleBulkPermanentDelete function
+const handleBulkPermanentDelete = () => {
+  showBulkDeleteConfirmation.value = true
+}
+
+// Add new function for confirmed bulk permanent delete
+const confirmBulkPermanentDelete = async () => {
+  try {
+    // Convert the array to a plain array and ensure it's not empty
+    const plainArray = [...selectedDocuments.value]
+    if (plainArray.length === 0) {
+      toast({
+        title: 'Erreur',
+        description: 'Veuillez sélectionner au moins un document.',
+        variant: 'destructive',
+      })
+      return
+    }
+    
+    // Log the array being sent
+    console.log('Sending bulk delete request with array:', plainArray)
+    
+    // First soft-delete the documents
+    const deleteResponse = await documentsService.bulkDelete(plainArray)
+    if (!deleteResponse.success) {
+      throw new Error(deleteResponse.message || 'Une erreur est survenue lors de la suppression des documents.')
+    }
+
+    // Then permanently delete them
+    const permanentDeleteResponse = await documentsService.bulkPermanentDelete(plainArray)
+    if (permanentDeleteResponse.success) {
+      toast({
+        title: 'Documents supprimés définitivement',
+        description: `${selectedDocuments.value.length} document(s) ont été supprimé(s) définitivement.`,
+      })
+      selectedDocuments.value = []
+      isBulkMode.value = false
+      await fetchDocuments()
+    } else {
+      throw new Error(permanentDeleteResponse.message || 'Une erreur est survenue lors de la suppression définitive des documents.')
+    }
+  } catch (error) {
+    console.error('Error bulk permanently deleting documents:', error)
+    toast({
+      title: 'Erreur',
+      description: 'Impossible de supprimer définitivement les documents.',
+      variant: 'destructive',
+    })
+  } finally {
+    showBulkDeleteConfirmation.value = false
+  }
+}
+
+const toggleBulkMode = () => {
+  isBulkMode.value = !isBulkMode.value
+  if (!isBulkMode.value) {
+    selectedDocuments.value = []
+  }
+}
+
+const toggleDocumentSelection = (docId: string) => {
+  const index = selectedDocuments.value.indexOf(docId)
+  if (index === -1) {
+    selectedDocuments.value.push(docId)
+  } else {
+    selectedDocuments.value.splice(index, 1)
+  }
+}
+
+const isDocumentSelected = (docId: string) => {
+  return selectedDocuments.value.includes(docId)
+}
+
+// Add computed property for bulk actions visibility
+const showBulkActions = computed(() => selectedDocuments.value.length > 0)
 
 // Add new computed property for active filters
 const activeFilters = computed(() => {
@@ -240,7 +681,7 @@ const activeFilters = computed(() => {
   if (selectedLanguage.value !== 'all') {
     filters.push({ 
       type: 'language', 
-      value: selectedLanguage.value === 'fr' ? 'Français' : selectedLanguage.value === 'en' ? 'Anglais' : 'Arabe'
+      value: selectedLanguage.value === 'fr' ? 'Français' : selectedLanguage.value === 'en' || selectedLanguage.value === 'english' ? 'Anglais' : 'Arabe'
     })
   }
   return filters
@@ -265,101 +706,144 @@ const getOcrConfidenceColor = (score: number) => {
   return 'text-muted-foreground'
 }
 
-// Add new function to handle favorites
-const toggleFavorite = (docId: number) => {
-  const doc = documents.value.find(d => d.id === docId)
-  if (doc) {
-    doc.favorite = !doc.favorite
-  }
-}
+// Update the toggleFavorite function
+const toggleFavorite = async (docId: string) => {
+  try {
+    // Update the document in the list
+    const doc = documents.value.find(d => d.id === docId)
+    if (!doc) return
 
-// Update the handleFileUpload function
-const handleFileUpload = async (event: Event) => {
-  const input = event.target as HTMLInputElement
-  if (input.files?.length) {
-    isUploading.value = true
-    uploadingFiles.value = Array.from(input.files).map(file => ({
-      name: file.name,
-      progress: 0,
-      status: 'uploading'
-    }))
+    // Toggle the favorite status locally first for immediate feedback
+    doc.isFavorite = !doc.isFavorite
 
-    // Simulate file upload for each file
-    for (let i = 0; i < uploadingFiles.value.length; i++) {
-      const file = uploadingFiles.value[i]
-      
-      // Simulate upload progress
-      for (let progress = 0; progress <= 100; progress += 10) {
-        file.progress = progress
-        await new Promise(resolve => setTimeout(resolve, 200))
-      }
-      
-      // Mark as complete
-      file.status = 'complete'
+    // If the document is being viewed in the preview panel, update it there too
+    if (selectedDocument.value && selectedDocument.value.id === docId) {
+      selectedDocument.value.isFavorite = doc.isFavorite
     }
 
-    // Reset after all files are processed
-    setTimeout(() => {
-      isUploading.value = false
-      uploadingFiles.value = []
-      showUploadModal.value = false
-    }, 1000)
+    // Make the API call to update the favorite status
+    await documentsService.updateFavorite(docId, doc.isFavorite)
+
+    // Refresh the documents list to ensure consistency
+    await fetchDocuments()
+  } catch (error) {
+    console.error('Error toggling favorite status:', error)
+    // Revert the local changes if the API call fails
+    const doc = documents.value.find(d => d.id === docId)
+    if (doc) {
+      doc.isFavorite = !doc.isFavorite
+    }
+    if (selectedDocument.value && selectedDocument.value.id === docId) {
+      selectedDocument.value.isFavorite = !selectedDocument.value.isFavorite
+    }
   }
 }
 
-// Update the handleDrop function
-const handleDrop = async (event: DragEvent) => {
-  event.preventDefault()
-  dragOver.value = false
+// Add new refs for metadata form
+const showMetadataForm = ref(false)
+const selectedFile = ref<File | null>(null)
+const documentMetadata = ref({
+  language: 'French',
+  topic: '',
+  description: '',
+  tags: '',
+  isFavorite: false
+})
+
+// Add new function to handle file selection
+const handleFileSelect = (files: File[]) => {
+  if (files.length > 0) {
+    selectedFile.value = files[0]
+    showMetadataForm.value = true
+  }
+}
+
+// Add new function to handle metadata form submission
+const handleMetadataSubmit = async () => {
+  if (!selectedFile.value) return
   
-  if (event.dataTransfer?.files.length) {
-    isUploading.value = true
-    uploadingFiles.value = Array.from(event.dataTransfer.files).map(file => ({
-      name: file.name,
-      progress: 0,
-      status: 'uploading'
-    }))
-
-    // Simulate file upload for each file
-    for (let i = 0; i < uploadingFiles.value.length; i++) {
-      const file = uploadingFiles.value[i]
-      
-      // Simulate upload progress
-      for (let progress = 0; progress <= 100; progress += 10) {
-        file.progress = progress
-        await new Promise(resolve => setTimeout(resolve, 200))
-      }
-      
-      // Mark as complete
-      file.status = 'complete'
+  try {
+    const formData = new FormData()
+    formData.append('file', selectedFile.value)
+    
+    // Convert tags string to array
+    const metadata = {
+      ...documentMetadata.value,
+      tags: documentMetadata.value.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
     }
-
-    // Reset after all files are processed
-    setTimeout(() => {
-      isUploading.value = false
-      uploadingFiles.value = []
-      showUploadModal.value = false
-    }, 1000)
+    
+    formData.append('metadata', JSON.stringify(metadata))
+    
+    const response = await documentsService.upload(selectedFile.value, metadata)
+    if (response.data.success) {
+      toast({
+        title: 'Document uploadé',
+        description: 'Le document a été uploadé avec succès.',
+      })
+      showMetadataForm.value = false
+      selectedFile.value = null
+      documentMetadata.value = {
+        language: 'French',
+        topic: '',
+        description: '',
+        tags: '',
+        isFavorite: false
+      }
+      await fetchDocuments()
+    } else {
+      throw new Error(response.data.message || 'Une erreur est survenue lors de l\'upload.')
+    }
+  } catch (error: any) {
+    console.error('Error uploading document:', error)
+    toast({
+      title: 'Erreur',
+      description: error.message || 'Impossible d\'uploader le document.',
+      variant: 'destructive',
+    })
   }
 }
 
-// Update the helper function for status icons
-const getUploadStatusIcon = (status: string) => {
-  switch (status) {
-    case 'uploading': return Loader2
-    case 'complete': return CheckCircle2
-    case 'error': return XCircle
-    default: return Loader2
+// Update the handleUploadSuccess function
+const handleUploadSuccess = async (files: File[]) => {
+  // Close the upload modal
+  showUploadModal.value = false
+  
+  // Show success toast
+  toast({
+    title: 'Documents uploadés',
+    description: `${files.length} document(s) ont été uploadé(s) avec succès.`,
+  })
+  
+  // Refresh the documents list
+  await fetchDocuments()
+}
+
+// Update the handleUploadError function
+const handleUploadError = (error: any) => {
+  console.error('Upload error:', error)
+  // Error is handled by the FileUpload component
+}
+
+// Add function to handle pagination
+const handlePageChange = (page: number) => {
+  currentPage.value = page
+  fetchDocuments()
+}
+
+// Add function to handle page size change
+const handlePageSizeChange = (size: number) => {
+  pageSize.value = size
+  currentPage.value = 1
+  fetchDocuments()
+}
+
+// Add new function for select all
+const selectAllDocuments = () => {
+  if (selectedDocuments.value.length === sortedAndFilteredDocuments.value.length) {
+    selectedDocuments.value = []
+  } else {
+    selectedDocuments.value = sortedAndFilteredDocuments.value.map(doc => doc.id)
   }
-}
-
-const handleDragOver = (event: DragEvent) => {
-  event.preventDefault()
-  dragOver.value = true
-}
-
-const handleDragLeave = () => {
-  dragOver.value = false
 }
 </script>
 
@@ -424,13 +908,9 @@ const handleDragLeave = () => {
                   <List class="h-4 w-4 mr-1" />
                   <span class="text-xs">Liste</span>
                 </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  @click="showUploadModal = true"
-                >
-                  <Plus class="h-4 w-4 mr-1" />
-                  <span class="text-xs">Nouveau document</span>
+                <Button @click="showUploadModal = true">
+                  <Upload class="h-4 w-4 mr-2" />
+                  Nouveau document
                 </Button>
               </div>
             </div>
@@ -518,6 +998,24 @@ const handleDragLeave = () => {
                 </div>
               </div>
 
+              <!-- Status Filter -->
+              <div class="flex items-center gap-2">
+                <Filter class="h-4 w-4 text-muted-foreground" />
+                <select
+                  v-model="selectedStatus"
+                  class="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                  @change="() => {
+                    console.log('Status dropdown changed to:', selectedStatus);
+                    console.log('Type of selectedStatus:', typeof selectedStatus);
+                  }"
+                >
+                  <option value="all">Tous les statuts</option>
+                  <option value="Complete">Traité</option>
+                  <option value="Uploaded">En attente</option>
+                  <option value="Deleted">Corbeille</option>
+                </select>
+              </div>
+
               <!-- Expand Filters Button -->
               <div class="flex items-center justify-center">
                 <Button
@@ -563,9 +1061,51 @@ const handleDragLeave = () => {
           </div>
         </div>
 
+        <!-- Bulk Actions Toolbar -->
+        <div v-if="isBulkMode" class="flex items-center justify-between p-4 bg-muted/50 border-b">
+          <div class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              :checked="selectedDocuments.length === sortedAndFilteredDocuments.length"
+              @change="selectAllDocuments"
+              class="w-4 h-4 rounded border-gray-300"
+            />
+            <span class="text-sm text-muted-foreground">
+              {{ selectedDocuments.length }} document(s) sélectionné(s)
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              @click="handleBulkDelete"
+              :disabled="selectedDocuments.length === 0"
+            >
+              <Trash2 class="w-4 h-4 mr-2" />
+              Déplacer dans la corbeille
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              @click="handleBulkPermanentDelete"
+              :disabled="selectedDocuments.length === 0"
+            >
+              <Trash2 class="w-4 h-4 mr-2" />
+              Supprimer définitivement
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              @click="toggleBulkMode"
+            >
+              <X class="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
         <!-- Grid View -->
         <div v-if="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          <Card v-for="doc in sortedAndFilteredDocuments" :key="doc.id" class="overflow-hidden">
+          <Card v-for="doc in sortedAndFilteredDocuments" :key="doc.id" class="overflow-hidden relative">
             <CardContent class="p-0">
               <div class="aspect-[3/4] relative group">
                 <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2" @click.stop>
@@ -584,24 +1124,38 @@ const handleDragLeave = () => {
                 </div>
                 <!-- Document Preview -->
                 <div class="absolute inset-0 bg-muted cursor-pointer" @click="handleView(doc.id)">
-                  <img 
-                    :src="doc.thumbnail" 
-                    :alt="doc.name"
-                    class="w-full h-full object-cover"
-                    @error="(e: Event) => { const target = e.target as HTMLImageElement; if (target) target.style.display = 'none' }"
-                  />
-                  <div v-if="!doc.thumbnail" class="absolute inset-0 flex items-center justify-center">
-                    <FileText class="h-20 w-20 text-muted-foreground" />
+                  <!-- PDF Preview -->
+                  <div v-if="doc.type?.toLowerCase().includes('pdf')" class="w-full h-full flex flex-col items-center justify-center p-4">
+                    <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-lg flex items-center justify-center mb-2">
+                      <FileText class="h-8 w-8 text-red-600 dark:text-red-400" />
+                    </div>
+                    <span class="text-xs text-muted-foreground">PDF Document</span>
+                  </div>
+                  
+                  <!-- Image Preview -->
+                  <div v-else-if="doc.type?.toLowerCase().includes('image')" class="w-full h-full flex flex-col items-center justify-center p-4">
+                    <div class="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center mb-2">
+                      <ImageIcon class="h-8 w-8 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <span class="text-xs text-muted-foreground">Image</span>
+                  </div>
+                  
+                  <!-- Default Preview -->
+                  <div v-else class="w-full h-full flex flex-col items-center justify-center p-4">
+                    <div class="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center mb-2">
+                      <FileText class="h-8 w-8 text-gray-600 dark:text-gray-400" />
+                    </div>
+                    <span class="text-xs text-muted-foreground">{{ doc.type || 'Document' }}</span>
                   </div>
                 </div>
                 <!-- Status Badge -->
                 <div class="absolute top-2 right-2">
                   <span :class="{
                     'px-2 py-1 rounded-full text-xs font-medium': true,
-                    'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400': doc.status === 'Traité',
-                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400': doc.status === 'En attente'
+                    'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400': doc.status === 'Complete',
+                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400': doc.status === 'Uploaded'
                   }">
-                    {{ doc.status }}
+                    {{ doc.status === 'Complete' ? 'Traité' : 'En attente' }}
                   </span>
                 </div>
                 <!-- Language Badge -->
@@ -627,38 +1181,76 @@ const handleDragLeave = () => {
                     @click.stop="toggleFavorite(doc.id)"
                   >
                     <Star
-                      class="h-4 w-4"
-                      :class="doc.favorite ? 'fill-yellow-400 text-yellow-400' : 'text-white'"
+                      class="h-4 w-4 transition-colors duration-200"
+                      :class="[
+                        doc.isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-white',
+                        'hover:text-yellow-400 hover:fill-yellow-400'
+                      ]"
                     />
                   </Button>
                 </div>
               </div>
             </CardContent>
-            <CardFooter class="p-3 flex-col items-start">
+            <CardFooter class="p-3 flex-col items-start relative">
+              <!-- Selection checkbox -->
+              <div v-if="isBulkMode" class="absolute bottom-3 right-3">
+                <input
+                  type="checkbox"
+                  :checked="isDocumentSelected(doc.id)"
+                  @change="toggleDocumentSelection(doc.id)"
+                  class="w-4 h-4 rounded border-gray-300"
+                />
+              </div>
               <div class="flex items-center justify-between w-full">
                 <h3 class="font-medium text-sm truncate flex-1">{{ doc.name }}</h3>
-                <Button variant="ghost" size="icon" class="h-8 w-8" @click="handleDelete(doc.id)">
-                  <Trash2 class="h-4 w-4" />
-                </Button>
+                <div class="flex items-center gap-2">
+                  <Button
+                    v-if="doc.status === 'Deleted' || doc.isDeleted"
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8 hover:text-red-500"
+                    @click="handleRestore(doc.id)"
+                  >
+                    <FileText class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    v-if="doc.status === 'Deleted' || doc.isDeleted"
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8 hover:text-red-500"
+                    @click="handlePermanentDelete(doc.id)"
+                  >
+                    <Trash2 class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    v-else
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8 hover:text-red-500"
+                    @click="handleDelete(doc.id)"
+                  >
+                    <Trash2 class="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div class="w-full mt-2 space-y-1">
                 <p class="text-xs text-muted-foreground flex items-center gap-1">
                   <Calendar class="h-3 w-3" />
-                  {{ doc.date }}
+                  {{ formatDate(doc.createdAt) }}
                 </p>
                 <p class="text-xs text-muted-foreground flex items-center gap-1">
                   <FileText class="h-3 w-3" />
-                  {{ doc.extractedText }}
+                  {{ formatFileSize(doc.size) }}
                 </p>
                 <p class="text-xs flex items-center gap-1">
                   <Percent class="h-3 w-3" />
-                  <span :class="getOcrConfidenceColor(doc.ocrConfidence)">
-                    Score OCR: {{ doc.ocrConfidence }}%
+                  <span :class="getOcrConfidenceColor(doc.accuracy || 0)">
+                    Score OCR: {{ doc.accuracy || 0 }}%
                   </span>
                 </p>
                 <p class="text-xs text-muted-foreground flex items-center gap-1">
                   <Clock class="h-3 w-3" />
-                  Modifié le {{ doc.lastModified }}
+                  Modifié le {{ formatDate(doc.updatedAt) }}
                 </p>
                 <div class="flex flex-wrap gap-1 mt-2">
                   <span v-for="tag in doc.tags" :key="tag"
@@ -674,18 +1266,32 @@ const handleDragLeave = () => {
         <!-- List View -->
         <div v-else class="space-y-2">
           <div v-for="doc in sortedAndFilteredDocuments" :key="doc.id" 
-            class="flex items-center justify-between p-4 bg-muted rounded-lg hover:bg-muted/80 transition-colors">
-            <div class="flex items-center gap-4">
+            class="flex items-center justify-between p-4 bg-muted rounded-lg hover:bg-muted/80 transition-colors relative">
+            <!-- Selection checkbox -->
+            <div v-if="isBulkMode" class="absolute left-4">
+              <input
+                type="checkbox"
+                :checked="isDocumentSelected(doc.id)"
+                @change="toggleDocumentSelection(doc.id)"
+                class="w-4 h-4 rounded border-gray-300"
+              />
+            </div>
+            <div class="flex items-center gap-4 flex-1" :class="{ 'pl-8': isBulkMode }">
               <!-- Document Thumbnail -->
               <div class="w-16 h-16 relative rounded overflow-hidden bg-background">
-                <img 
-                  :src="doc.thumbnail" 
-                  :alt="doc.name"
-                  class="w-full h-full object-cover"
-                  @error="(e: Event) => { const target = e.target as HTMLImageElement; if (target) target.style.display = 'none' }"
-                />
-                <div v-if="!doc.thumbnail" class="absolute inset-0 flex items-center justify-center">
-                  <FileText class="w-8 h-8 text-muted-foreground" />
+                <!-- PDF Preview -->
+                <div v-if="doc.type?.toLowerCase().includes('pdf')" class="w-full h-full flex items-center justify-center bg-red-100 dark:bg-red-900/30">
+                  <FileText class="h-6 w-6 text-red-600 dark:text-red-400" />
+                </div>
+                
+                <!-- Image Preview -->
+                <div v-else-if="doc.type?.toLowerCase().includes('image')" class="w-full h-full flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
+                  <ImageIcon class="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                </div>
+                
+                <!-- Default Preview -->
+                <div v-else class="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-800">
+                  <FileText class="h-6 w-6 text-gray-600 dark:text-gray-400" />
                 </div>
               </div>
               <div class="space-y-1">
@@ -693,26 +1299,26 @@ const handleDragLeave = () => {
                   <h3 class="font-medium">{{ doc.name }}</h3>
                   <span :class="{
                     'px-2 py-0.5 rounded-full text-xs font-medium': true,
-                    'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400': doc.status === 'Traité',
-                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400': doc.status === 'En attente'
+                    'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400': doc.status === 'Complete',
+                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400': doc.status === 'Uploaded'
                   }">
-                    {{ doc.status }}
+                    {{ doc.status === 'Complete' ? 'Traité' : 'En attente' }}
                   </span>
                   <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
                     {{ (doc.language || '').toUpperCase() }}
                   </span>
                 </div>
                 <p class="text-sm text-muted-foreground">
-                  {{ doc.date }} · {{ doc.size }} · {{ doc.extractedText }}
+                  {{ formatDate(doc.createdAt) }} · {{ formatFileSize(doc.size) }} · {{ doc.description || 'No description' }}
                 </p>
                 <p class="text-sm flex items-center gap-1">
                   <Percent class="h-4 w-4" />
-                  <span :class="getOcrConfidenceColor(doc.ocrConfidence)">
-                    Score OCR: {{ doc.ocrConfidence }}%
+                  <span :class="getOcrConfidenceColor(doc.accuracy || 0)">
+                    Score OCR: {{ doc.accuracy || 0 }}%
                   </span>
                 </p>
                 <p class="text-sm text-muted-foreground">
-                  Modifié par {{ doc.createdBy }} le {{ doc.lastModified }}
+                  Modifié le {{ formatDate(doc.updatedAt) }}
                 </p>
                 <div class="flex flex-wrap gap-1 mt-1">
                   <span v-for="tag in doc.tags" :key="tag"
@@ -723,12 +1329,18 @@ const handleDragLeave = () => {
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <Button variant="ghost" size="sm" @click="toggleFavorite(doc.id)">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                @click="toggleFavorite(doc.id)"
+                :class="{ 'text-yellow-500': doc.isFavorite }"
+                class="hover:text-yellow-500"
+              >
                 <Star
                   class="h-4 w-4 mr-1"
-                  :class="doc.favorite ? 'fill-yellow-400 text-yellow-400' : ''"
+                  :class="doc.isFavorite ? 'fill-yellow-400 text-yellow-400' : ''"
                 />
-                Favoris
+                {{ doc.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris' }}
               </Button>
               <Button variant="ghost" size="sm" @click="handleView(doc.id)">
                 <Eye class="h-4 w-4 mr-1" />
@@ -738,7 +1350,31 @@ const handleDragLeave = () => {
                 <Download class="h-4 w-4 mr-1" />
                 Télécharger
               </Button>
-              <Button variant="ghost" size="sm" @click="handleDelete(doc.id)">
+              <Button
+                v-if="doc.status === 'Deleted' || doc.isDeleted"
+                variant="ghost"
+                size="sm"
+                @click="handleRestore(doc.id)"
+              >
+                <FileText class="h-4 w-4 mr-1" />
+                Restaurer
+              </Button>
+              <Button
+                v-if="doc.status === 'Deleted' || doc.isDeleted"
+                variant="ghost"
+                size="sm"
+                @click="handlePermanentDelete(doc.id)"
+              >
+                <Trash2 class="h-4 w-4 mr-1" />
+                Supprimer définitivement
+              </Button>
+              <Button
+                v-else
+                variant="ghost"
+                size="sm"
+                class="hover:text-red-500"
+                @click="handleDelete(doc.id)"
+              >
                 <Trash2 class="h-4 w-4 mr-1" />
                 Supprimer
               </Button>
@@ -756,7 +1392,7 @@ const handleDragLeave = () => {
         <!-- Add document view modal -->
         <div v-if="showViewModal && selectedDocument" 
           class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          @click="showViewModal = false"
+          @click="closeViewModal"
         >
           <div 
             class="bg-background rounded-lg shadow-lg w-full h-[90vh] mx-4 overflow-hidden flex animate-in zoom-in-95 duration-200" 
@@ -769,24 +1405,52 @@ const handleDragLeave = () => {
                   {{ selectedDocument.name }}
                   <span :class="{
                     'px-2 py-1 rounded-full text-xs font-medium': true,
-                    'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400': selectedDocument.status === 'Traité',
-                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400': selectedDocument.status === 'En attente'
+                    'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400': selectedDocument.status === 'Complete',
+                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400': selectedDocument.status === 'Uploaded'
                   }">
-                    {{ selectedDocument.status }}
+                    {{ selectedDocument.status === 'Complete' ? 'Traité' : 'En attente' }}
                   </span>
                 </h2>
-                <Button variant="ghost" size="icon" @click="showViewModal = false">
+                <Button variant="ghost" size="icon" @click="closeViewModal">
                   <X class="h-4 w-4" />
                 </Button>
               </div>
               <div class="flex-1 overflow-auto p-4 bg-muted/30">
                 <div class="bg-muted rounded-lg overflow-hidden h-full flex items-center justify-center">
-                  <img 
-                    :src="selectedDocument.thumbnail" 
-                    :alt="selectedDocument.name"
-                    class="max-w-full max-h-full object-contain"
-                    @error="(e: Event) => { const target = e.target as HTMLImageElement; if (target) target.style.display = 'none' }"
-                  />
+                  <!-- PDF Preview -->
+                  <div v-if="selectedDocument.type?.toLowerCase().includes('pdf')" class="w-full h-full">
+                    <iframe
+                      :src="selectedDocument.documentUrl"
+                      class="w-full h-full"
+                      frameborder="0"
+                    ></iframe>
+                  </div>
+                  
+                  <!-- Image Preview -->
+                  <div v-else-if="selectedDocument.type?.toLowerCase().includes('image')" class="w-full h-full">
+                    <div class="relative w-full h-full">
+                      <img
+                        :src="selectedDocument.documentUrl"
+                        :alt="selectedDocument.name"
+                        class="w-full h-full object-contain"
+                        @error="handleImageError"
+                        @load="imageLoading = false"
+                        crossorigin="use-credentials"
+                        referrerpolicy="no-referrer"
+                      />
+                      <div v-if="imageLoading" class="absolute inset-0 flex items-center justify-center bg-muted/50">
+                        <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                    </div>
+                  </div>
+                  
+                  <!-- Default Preview -->
+                  <div v-else class="w-full h-full flex flex-col items-center justify-center p-8">
+                    <div class="w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center mb-4">
+                      <FileText class="h-12 w-12 text-gray-600 dark:text-gray-400" />
+                    </div>
+                    <span class="text-sm text-muted-foreground">{{ selectedDocument.type || 'Document' }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -803,74 +1467,49 @@ const handleDragLeave = () => {
               
               <div class="flex-1 overflow-auto">
                 <div class="p-4 space-y-6">
-                  <!-- Basic Info -->
-                  <div class="space-y-2">
-                    <h4 class="text-sm font-medium text-muted-foreground">Détails</h4>
-                    <div class="grid grid-cols-2 gap-2 text-sm">
-                      <div class="flex items-center gap-2">
-                        <Calendar class="h-4 w-4 text-muted-foreground" />
-                        <span>{{ selectedDocument.date }}</span>
-                      </div>
-                      <div class="flex items-center gap-2">
+                  <!-- Document Details -->
+                  <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-4">
+                      <!-- File Info -->
+                      <div class="flex items-center gap-3 text-sm">
                         <FileText class="h-4 w-4 text-muted-foreground" />
-                        <span>{{ selectedDocument.size }}</span>
+                        <p class="font-medium">{{ formatFileSize(selectedDocument.size) }}</p>
                       </div>
-                      <div class="flex items-center gap-2">
-                        <Clock class="h-4 w-4 text-muted-foreground" />
-                        <span>{{ selectedDocument.lastModified }}</span>
-                      </div>
-                      <div class="flex items-center gap-2">
+                      <div class="flex items-center gap-3 text-sm">
                         <Languages class="h-4 w-4 text-muted-foreground" />
-                        <span>{{ selectedDocument.language.toUpperCase() }}</span>
+                        <p class="font-medium">{{ selectedDocument.language === 'fr' ? 'Français' : selectedDocument.language === 'en' || selectedDocument.language === 'english' ? 'Anglais' : 'Arabe' }}</p>
                       </div>
                     </div>
                   </div>
 
                   <!-- OCR Information -->
-                  <div class="space-y-2">
-                    <h4 class="text-sm font-medium text-muted-foreground">Analyse OCR</h4>
-                    <div class="bg-muted rounded-lg p-4 space-y-4">
-                      <!-- OCR Score -->
+                  <div class="bg-muted rounded-lg p-4">
+                    <div class="flex items-center gap-3 mb-4">
+                      <Percent class="h-4 w-4 text-muted-foreground" />
                       <div>
-                        <div class="flex items-center justify-between mb-2">
-                          <span class="text-sm">Score de confiance</span>
-                          <span :class="[
-                            'text-sm font-medium',
-                            getOcrConfidenceColor(selectedDocument.ocrConfidence)
-                          ]">
-                            {{ selectedDocument.ocrConfidence }}%
-                          </span>
+                        <p class="font-medium">{{ selectedDocument.accuracy || 0 }}%</p>
+                        <p class="text-xs text-muted-foreground">Score OCR</p>
+                      </div>
                         </div>
                         <div class="h-2 bg-muted-foreground/20 rounded-full overflow-hidden">
                           <div
                             class="h-full rounded-full transition-all"
                             :class="{
-                              'bg-green-500': selectedDocument.ocrConfidence >= 95,
-                              'bg-yellow-500': selectedDocument.ocrConfidence >= 85 && selectedDocument.ocrConfidence < 95,
-                              'bg-red-500': selectedDocument.ocrConfidence > 0 && selectedDocument.ocrConfidence < 85
+                              'bg-green-500': (selectedDocument.accuracy || 0) >= 95,
+                              'bg-yellow-500': (selectedDocument.accuracy || 0) >= 85 && (selectedDocument.accuracy || 0) < 95,
+                              'bg-red-500': (selectedDocument.accuracy || 0) > 0 && (selectedDocument.accuracy || 0) < 85
                             }"
-                            :style="{ width: `${selectedDocument.ocrConfidence}%` }"
+                            :style="{ width: `${selectedDocument.accuracy || 0}%` }"
                           ></div>
-                        </div>
-                      </div>
-                      
-                      <!-- Extracted Text Stats -->
-                      <div class="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span class="text-muted-foreground">Caractères</span>
-                          <p class="font-medium">{{ selectedDocument.extractedText }}</p>
-                        </div>
-                        <div>
-                          <span class="text-muted-foreground">Langue détectée</span>
-                          <p class="font-medium">{{ selectedDocument.language === 'fr' ? 'Français' : selectedDocument.language === 'en' ? 'Anglais' : 'Arabe' }}</p>
-                        </div>
-                      </div>
                     </div>
                   </div>
 
                   <!-- Tags -->
-                  <div class="space-y-2">
-                    <h4 class="text-sm font-medium text-muted-foreground">Tags</h4>
+                  <div v-if="selectedDocument.tags && selectedDocument.tags.length > 0" class="space-y-2">
+                    <div class="flex items-center gap-2">
+                      <FileType2 class="h-4 w-4 text-muted-foreground" />
+                      <span class="text-sm font-medium">Tags</span>
+                    </div>
                     <div class="flex flex-wrap gap-1">
                       <span v-for="tag in selectedDocument.tags" :key="tag"
                         class="px-2 py-1 bg-muted rounded-full text-sm">
@@ -881,14 +1520,22 @@ const handleDragLeave = () => {
 
                   <!-- Actions -->
                   <div class="space-y-2">
-                    <h4 class="text-sm font-medium text-muted-foreground">Actions</h4>
+                    <div class="flex items-center gap-2">
+                      <Eye class="h-4 w-4 text-muted-foreground" />
+                      <span class="text-sm font-medium">Actions</span>
+                    </div>
                     <div class="flex flex-col gap-2">
-                      <Button class="justify-start" variant="outline" @click="toggleFavorite(selectedDocument.id)">
+                      <Button 
+                        class="justify-start" 
+                        variant="outline" 
+                        @click="toggleFavorite(selectedDocument.id)"
+                        :class="{ 'text-yellow-500': selectedDocument.isFavorite }"
+                      >
                         <Star
                           class="h-4 w-4 mr-2"
-                          :class="selectedDocument.favorite ? 'fill-yellow-400 text-yellow-400' : ''"
+                          :class="selectedDocument.isFavorite ? 'fill-yellow-400 text-yellow-400' : ''"
                         />
-                        {{ selectedDocument.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris' }}
+                        {{ selectedDocument.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris' }}
                       </Button>
                       <Button class="justify-start" variant="outline">
                         <Eye class="h-4 w-4 mr-2" />
@@ -905,124 +1552,129 @@ const handleDragLeave = () => {
             </div>
           </div>
         </div>
+
+        <!-- Bulk Mode Toggle Button -->
+        <Button
+          v-if="!isBulkMode"
+          variant="outline"
+          size="sm"
+          class="fixed bottom-4 right-4"
+          @click="toggleBulkMode"
+        >
+          <Grid2x2 class="w-4 h-4 mr-2" />
+          Sélection multiple
+        </Button>
       </div>
     </SidebarInset>
   </SidebarProvider>
 
   <!-- Upload Modal -->
-  <div
-    v-if="showUploadModal"
-    class="fixed inset-0 bg-background/80 backdrop-blur-sm z-50"
-    @click="showUploadModal = false"
-  >
-    <div
-      class="fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 sm:rounded-lg"
-      @click.stop
-    >
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold">Ajouter un nouveau document</h2>
-        <Button variant="ghost" size="sm" @click="showUploadModal = false">
-          <X class="h-4 w-4" />
-        </Button>
-      </div>
-
-      <!-- Upload Area -->
-      <div
-        v-if="!isUploading"
-        @drop="handleDrop"
-        @dragover="handleDragOver"
-        @dragleave="handleDragLeave"
-        class="flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-10 transition-colors"
-        :class="{
-          'border-primary/50 bg-primary/5': dragOver,
-          'hover:border-primary/50': !dragOver
-        }"
-      >
-        <input
-          type="file"
-          accept=".pdf,.png,.jpg,.jpeg"
-          class="hidden"
-          id="file-upload"
-          multiple
-          @change="handleFileUpload"
+  <Dialog :open="showUploadModal" @update:open="showUploadModal = false">
+    <DialogContent class="sm:max-w-[500px]">
+      <DialogHeader>
+        <DialogTitle>Nouveau document</DialogTitle>
+        <DialogDescription>
+          Téléchargez un ou plusieurs documents pour les traiter avec OCR.
+        </DialogDescription>
+      </DialogHeader>
+      
+      <div class="py-4">
+        <FileUpload
+          @upload-success="handleUploadSuccess"
+          @upload-error="handleUploadError"
+          @file-select="handleFileSelect"
+          :max-files="1"
+          :accepted-file-types="['image/*', 'application/pdf']"
+          :max-file-size="10 * 1024 * 1024"
         />
-        
-        <div class="text-center">
-          <Upload class="w-12 h-12 mb-4 mx-auto text-muted-foreground" />
-          <label
-            for="file-upload"
-            class="cursor-pointer text-center"
-          >
-            <span class="font-medium text-primary hover:underline">Cliquez pour importer</span>
-            <span class="text-muted-foreground"> ou glissez-déposez</span>
-          </label>
-          <p class="text-xs text-muted-foreground mt-2">PDF, PNG, JPG jusqu'à 10MB par fichier</p>
         </div>
-      </div>
+    </DialogContent>
+  </Dialog>
 
-      <!-- Upload Progress -->
-      <div v-else class="space-y-4">
-        <div
-          v-for="file in uploadingFiles"
-          :key="file.name"
-          class="bg-muted rounded-lg p-4 space-y-2"
-        >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <component
-                :is="getUploadStatusIcon(file.status)"
-                class="h-4 w-4"
-                :class="{
-                  'animate-spin': file.status === 'uploading',
-                  'text-blue-500': file.status === 'uploading',
-                  'text-green-500': file.status === 'complete',
-                  'text-red-500': file.status === 'error'
-                }"
-              />
-              <span class="text-sm font-medium">{{ file.name }}</span>
-            </div>
-            <span class="text-xs text-muted-foreground">
-              {{ file.status === 'uploading' ? `${file.progress}%` : 
-                 file.status === 'complete' ? 'Terminé' : 'Erreur' }}
-            </span>
-          </div>
-          
-          <div class="h-1.5 bg-muted-foreground/20 rounded-full overflow-hidden">
-            <div
-              class="h-full rounded-full transition-all duration-300"
-              :class="{
-                'bg-blue-500': file.status === 'uploading',
-                'bg-green-500': file.status === 'complete',
-                'bg-red-500': file.status === 'error'
-              }"
-              :style="{ width: `${file.progress}%` }"
-            ></div>
-          </div>
-        </div>
-
-        <p class="text-sm text-center text-muted-foreground">
-          {{ uploadingFiles.every(f => f.status === 'complete') 
-            ? 'Tous les fichiers ont été importés avec succès'
-            : 'Importation des fichiers en cours...' }}
-        </p>
-      </div>
-
-      <!-- Modal Actions -->
+  <!-- Delete Confirmation Dialog -->
+  <Dialog :open="showDeleteConfirmation" @update:open="showDeleteConfirmation = false">
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Supprimer définitivement</DialogTitle>
+        <DialogDescription>
+          Êtes-vous sûr de vouloir supprimer définitivement ce document ? Cette action est irréversible.
+        </DialogDescription>
+      </DialogHeader>
       <div class="flex justify-end gap-2">
-        <Button 
-          variant="outline" 
-          @click="showUploadModal = false"
-          :disabled="isUploading"
-        >
-          {{ isUploading ? 'Veuillez patienter...' : 'Annuler' }}
+        <Button variant="outline" @click="showDeleteConfirmation = false">
+          Annuler
         </Button>
-        <Button
-          v-if="!isUploading"
-          :disabled="uploadingFiles.length === 0"
-        >
-          Importer
+        <Button variant="destructive" @click="confirmPermanentDelete">
+          Supprimer définitivement
         </Button>
       </div>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
+
+  <!-- Bulk Delete Confirmation Dialog -->
+  <Dialog :open="showBulkDeleteConfirmation" @update:open="showBulkDeleteConfirmation = false">
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Supprimer définitivement</DialogTitle>
+        <DialogDescription>
+          Êtes-vous sûr de vouloir supprimer définitivement {{ selectedDocuments.length }} document(s) ? Cette action est irréversible.
+        </DialogDescription>
+      </DialogHeader>
+      <div class="flex justify-end gap-2">
+        <Button variant="outline" @click="showBulkDeleteConfirmation = false">
+          Annuler
+        </Button>
+        <Button variant="destructive" @click="confirmBulkPermanentDelete">
+          Supprimer définitivement
+        </Button>
+      </div>
+    </DialogContent>
+  </Dialog>
+
+  <!-- Metadata Form Modal -->
+  <Dialog :open="showMetadataForm" @update:open="showMetadataForm = false">
+    <DialogContent class="sm:max-w-[425px]">
+      <DialogHeader>
+        <DialogTitle>Informations du document</DialogTitle>
+        <DialogDescription>
+          Remplissez les informations concernant le document avant l'upload.
+        </DialogDescription>
+      </DialogHeader>
+      <div class="grid gap-4 py-4">
+        <div class="grid gap-2">
+          <Label for="language">Langue</Label>
+          <Select v-model="documentMetadata.language">
+            <SelectTrigger>
+              <SelectValue placeholder="Sélectionnez une langue" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="French">Français</SelectItem>
+              <SelectItem value="English">English</SelectItem>
+              <SelectItem value="Arabic">العربية</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="grid gap-2">
+          <Label for="topic">Thème</Label>
+          <Input id="topic" v-model="documentMetadata.topic" placeholder="Entrez le thème du document" />
+        </div>
+        <div class="grid gap-2">
+          <Label for="description">Description</Label>
+          <Textarea id="description" v-model="documentMetadata.description" placeholder="Entrez une description du document" />
+        </div>
+        <div class="grid gap-2">
+          <Label for="tags">Tags</Label>
+          <Input id="tags" v-model="documentMetadata.tags" placeholder="Entrez les tags séparés par des virgules" />
+        </div>
+        <div class="flex items-center space-x-2">
+          <Checkbox id="favorite" v-model="documentMetadata.isFavorite" />
+          <Label for="favorite">Marquer comme favori</Label>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" @click="showMetadataForm = false">Annuler</Button>
+        <Button @click="handleMetadataSubmit">Uploader</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template> 

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import { auth } from '@/services/api'
+import { auth, type UpdateUserDto } from '@/services/api'
 import { AuthService } from '@/services/auth-service'
+import { useUserStore } from '@/stores/userStore'
 import {
   Avatar,
   AvatarFallback,
@@ -62,7 +63,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 
 const props = defineProps<{
-  user: {
+  user?: {
     name: string
     email: string
     avatar: string
@@ -75,32 +76,49 @@ const isLoggingOut = ref(false)
 const showLogoutDialog = ref(false)
 const showProfileDialog = ref(false)
 const activeTab = ref('general')
+const profileError = ref('')
+const profileSuccess = ref(false)
 
-// Profile form data
-const profileForm = ref({
-  // Personal Information
-  name: props.user.name,
-  email: props.user.email,
-  phone: '',
-  address: '',
-  company: '',
-  birthDate: '',
-  avatar: props.user.avatar,
-  
-  // Security
-  newPassword: '',
-  confirmPassword: '',
-  twoFactorEnabled: false,
-  currentPassword: '',
+const userStore = useUserStore()
+
+// Use store's computed properties
+const userName = computed(() => userStore.userName)
+const userEmail = computed(() => userStore.userEmail)
+const currentAvatar = computed(() => userStore.userAvatar)
+
+// Add loading state for avatar
+const isAvatarLoading = ref(false)
+
+// Add computed property for avatar fallback with null checks
+const avatarFallback = computed(() => {
+  const name = userName.value
+  if (!name || name === 'Utilisateur') return 'U'
+  const nameParts = name.split(' ').filter(Boolean)
+  if (nameParts.length === 0) return 'U'
+  if (nameParts.length === 1) return nameParts[0][0]?.toUpperCase() || 'U'
+  return `${nameParts[0][0] || ''}${nameParts[1][0] || ''}`.toUpperCase() || 'U'
 })
 
+// Handle avatar error
+const handleAvatarError = (e: Event) => {
+  const target = e.target as HTMLImageElement
+  if (target) {
+    // Use a new random avatar on error
+    const randomSeed = Math.random().toString(36).substring(7)
+    const newAvatarUrl = `https://api.dicebear.com/9.x/croodles/svg?seed=${randomSeed}`
+    target.src = newAvatarUrl
+    localStorage.setItem('userAvatar', newAvatarUrl)
+  }
+}
+
+// Update the avatar options to use DiceBear Croodles API
 const avatarOptions = [
-  { id: 1, url: '/avatars/professional-1.png' },
-  { id: 2, url: '/avatars/professional-2.png' },
-  { id: 3, url: '/avatars/professional-3.png' },
-  { id: 4, url: '/avatars/professional-4.png' },
-  { id: 5, url: '/avatars/professional-5.png' },
-  { id: 6, url: '/avatars/professional-6.png' },
+  { id: 1, url: 'https://api.dicebear.com/9.x/croodles/svg?seed=avatar1' },
+  { id: 2, url: 'https://api.dicebear.com/9.x/croodles/svg?seed=avatar2' },
+  { id: 3, url: 'https://api.dicebear.com/9.x/croodles/svg?seed=avatar3' },
+  { id: 4, url: 'https://api.dicebear.com/9.x/croodles/svg?seed=avatar4' },
+  { id: 5, url: 'https://api.dicebear.com/9.x/croodles/svg?seed=avatar5' },
+  { id: 6, url: 'https://api.dicebear.com/9.x/croodles/svg?seed=avatar6' },
 ]
 
 const languages = [
@@ -134,33 +152,121 @@ const validatePassword = (password: string): boolean => {
          hasSpecialChar(password)
 }
 
-const handleLogout = async () => {
-  isLoggingOut.value = true
+// Update the profile form to use selected avatar URL
+const profileForm = ref({
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  address: '',
+  company: '',
+  birthDate: '',
+  selectedAvatar: avatarOptions[0].url, // Default to first avatar
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+  twoFactorEnabled: false
+})
+
+// Update the loadUserProfile function to use store
+const loadUserProfile = async () => {
+  if (userStore.isInitialized) return
+  
   try {
-    // Close the dialog first
-    showLogoutDialog.value = false
+    const profile = await userStore.fetchUserProfile()
+    if (!profile) {
+      throw new Error('Invalid profile data received')
+    }
     
-    // Call the logout service
-    await AuthService.logout()
-    
-    // The navigation will be handled by AuthService
-    // No need to manually redirect
+    // Initialize the form with profile data
+    profileForm.value = {
+      firstName: profile.firstName || '',
+      lastName: profile.lastName || '',
+      email: profile.email || '',
+      phone: profile.phone || '',
+      address: profile.address || '',
+      company: profile.company || '',
+      birthDate: profile.birthDate || '',
+      selectedAvatar: currentAvatar.value,
+      currentPassword: '',
+      newPassword: '',
+      confirmPassword: '',
+      twoFactorEnabled: false
+    }
   } catch (error) {
-    console.error('Logout error:', error)
-    // If there's an error, we still want to clear the UI state
-    showLogoutDialog.value = false
-  } finally {
-    isLoggingOut.value = false
+    console.error('❌ Error loading profile:', error)
+    profileError.value = 'Erreur lors du chargement du profil'
   }
 }
 
+// Form validation
+const validateProfile = (): string | null => {
+  if (!profileForm.value.firstName.trim()) {
+    return 'Le prénom est requis'
+  }
+  if (!profileForm.value.lastName.trim()) {
+    return 'Le nom est requis'
+  }
+  if (!profileForm.value.email.trim()) {
+    return 'L\'email est requis'
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profileForm.value.email)) {
+    return 'L\'email n\'est pas valide'
+  }
+  if (profileForm.value.phone && !/^\+?[0-9\s-()]+$/.test(profileForm.value.phone)) {
+    return 'Le numéro de téléphone n\'est pas valide'
+  }
+  return null
+}
+
+// Update the handleSaveProfile function to use store
 const handleSaveProfile = async () => {
+  console.log('🔵 [handleSaveProfile] Starting profile save...')
   isSaving.value = true
-  passwordError.value = ''
-  passwordSuccess.value = false
+  profileError.value = ''
+  profileSuccess.value = false
+
   try {
-    // If we're on the security tab and passwords are provided
-    if (activeTab.value === 'security' && profileForm.value.newPassword) {
+    if (activeTab.value === 'general') {
+      console.log('🔵 [handleSaveProfile] Current form data:', profileForm.value)
+      
+      // Always save avatar to localStorage (frontend only)
+      localStorage.setItem('userAvatar', profileForm.value.selectedAvatar)
+      console.log('✅ [handleSaveProfile] Avatar saved to localStorage')
+
+      // Validate profile data
+      const validationError = validateProfile()
+      if (validationError) {
+        console.error('❌ [handleSaveProfile] Validation error:', validationError)
+        throw new Error(validationError)
+      }
+      console.log('✅ [handleSaveProfile] Validation passed')
+
+      // Prepare update data without avatar
+      const updateData: UpdateUserDto = {
+        firstName: profileForm.value.firstName.trim(),
+        lastName: profileForm.value.lastName.trim(),
+        email: profileForm.value.email.trim(),
+        phone: profileForm.value.phone?.trim() || '',
+        address: profileForm.value.address?.trim() || '',
+        company: profileForm.value.company?.trim() || '',
+        birthDate: profileForm.value.birthDate || ''
+      }
+      console.log('🔵 [handleSaveProfile] Prepared update data:', updateData)
+
+      // Update profile using store
+      const result = await userStore.updateProfile(updateData)
+      console.log('✅ [handleProfile] Profile updated successfully:', result)
+      
+      // Show success message
+      profileSuccess.value = true
+      
+      // Reset success message and close dialog after 3 seconds
+      setTimeout(() => {
+        profileSuccess.value = false
+        showProfileDialog.value = false
+      }, 3000)
+    } else if (activeTab.value === 'security' && profileForm.value.newPassword) {
       // Validate password requirements
       if (!validatePassword(profileForm.value.newPassword)) {
         throw new Error('Le mot de passe doit contenir au moins 8 caractères, une majuscule, une minuscule, un chiffre et un caractère spécial')
@@ -191,38 +297,117 @@ const handleSaveProfile = async () => {
         showProfileDialog.value = false
       }, 3000)
     } else {
-      // Close the dialog immediately for non-password changes
       showProfileDialog.value = false
     }
   } catch (error: any) {
-    console.error('Error saving profile:', error)
-    passwordError.value = error.message
+    console.error('❌ [handleSaveProfile] Error details:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status
+    })
+    profileError.value = error.message || 'Une erreur est survenue'
   } finally {
+    console.log('🔵 [handleSaveProfile] Save operation completed')
     isSaving.value = false
   }
 }
 
+// Load profile when dialog opens
+const handleProfileDialogOpen = async (open: boolean) => {
+  if (open) {
+    await loadUserProfile()
+  }
+}
+
+onMounted(() => {
+  loadUserProfile()
+})
+
+// Update the handleAvatarUpload function
 const handleAvatarUpload = (event: Event) => {
   const input = event.target as HTMLInputElement
   if (input.files?.length) {
     const file = input.files[0]
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      profileError.value = 'Veuillez sélectionner une image valide'
+      return
+    }
+    
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      profileError.value = 'L\'image ne doit pas dépasser 2MB'
+      return
+    }
+
     const reader = new FileReader()
     reader.onload = (e) => {
       if (e.target?.result) {
-        profileForm.value.avatar = e.target.result as string
+        const base64String = e.target.result as string
+        // Validate base64 string
+        if (base64String.startsWith('data:image/')) {
+          profileForm.value.selectedAvatar = base64String // Use selectedAvatar instead of avatar
+          profileError.value = ''
+        } else {
+          profileError.value = 'Format d\'image invalide'
+        }
       }
+    }
+    reader.onerror = () => {
+      profileError.value = 'Erreur lors de la lecture du fichier'
     }
     reader.readAsDataURL(file)
   }
 }
 
-const removeAvatar = () => {
-  profileForm.value.avatar = ''
+// Update the selectAvatar function
+const selectAvatar = (avatarUrl: string) => {
+  profileForm.value.selectedAvatar = avatarUrl
+  // Store the selected avatar in localStorage
+  localStorage.setItem('userAvatar', avatarUrl)
 }
 
-const selectAvatar = (avatarUrl: string) => {
-  profileForm.value.avatar = avatarUrl
+// Update the removeAvatar function
+const removeAvatar = () => {
+  // Generate a new random avatar using DiceBear
+  const randomSeed = Math.random().toString(36).substring(7)
+  const newAvatarUrl = `https://api.dicebear.com/9.x/croodles/svg?seed=${randomSeed}`
+  profileForm.value.selectedAvatar = newAvatarUrl
+  localStorage.setItem('userAvatar', newAvatarUrl)
 }
+
+const handleLogout = async () => {
+  isLoggingOut.value = true
+  try {
+    // Close the dialog first
+    showLogoutDialog.value = false
+    
+    // Call the logout service
+    await AuthService.logout()
+    
+    // The navigation will be handled by AuthService
+    // No need to manually redirect
+  } catch (error) {
+    console.error('Logout error:', error)
+    // If there's an error, we still want to clear the UI state
+    showLogoutDialog.value = false
+  } finally {
+    isLoggingOut.value = false
+  }
+}
+
+// Cleanup on unmount
+onBeforeUnmount(() => {
+  // Reset all refs
+  isLoggingOut.value = false
+  showLogoutDialog.value = false
+  showProfileDialog.value = false
+  profileError.value = ''
+  profileSuccess.value = false
+  passwordError.value = ''
+  passwordSuccess.value = false
+})
 </script>
 
 <template>
@@ -256,8 +441,8 @@ const selectAvatar = (avatarUrl: string) => {
   </Dialog>
 
   <!-- Profile Dialog -->
-  <Dialog v-model:open="showProfileDialog">
-    <DialogContent class="sm:max-w-[600px]">
+  <Dialog v-model:open="showProfileDialog" @update:open="handleProfileDialogOpen">
+    <DialogContent class="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Profil</DialogTitle>
         <DialogDescription>
@@ -266,22 +451,28 @@ const selectAvatar = (avatarUrl: string) => {
       </DialogHeader>
       
       <Tabs v-model="activeTab" class="w-full">
-        <TabsList class="grid w-full grid-cols-2">
+        <TabsList class="grid w-full grid-cols-2 sticky top-0 bg-background z-10">
           <TabsTrigger value="general">Général</TabsTrigger>
           <TabsTrigger value="security">Sécurité</TabsTrigger>
         </TabsList>
 
-        <form @submit.prevent="handleSaveProfile">
+        <form @submit.prevent="handleSaveProfile" class="space-y-6">
           <!-- General Tab -->
           <TabsContent value="general" class="space-y-4 mt-4">
             <!-- Avatar Upload -->
             <div class="space-y-4">
               <Label>Photo de profil</Label>
               <div class="flex items-center gap-4">
-                <Avatar class="h-20 w-20">
-                  <AvatarImage :src="profileForm.avatar" :alt="profileForm.name" />
-                  <AvatarFallback>
-                    {{ profileForm.name.split(' ').map(n => n[0]).join('') }}
+                <Avatar class="h-20 w-20 rounded-full overflow-hidden">
+                  <AvatarImage 
+                    :src="currentAvatar" 
+                    :alt="profileForm.firstName + ' ' + profileForm.lastName"
+                    @error="handleAvatarError"
+                    :class="{ 'opacity-0': isAvatarLoading }"
+                    @load="isAvatarLoading = false"
+                  />
+                  <AvatarFallback class="rounded-full">
+                    {{ (profileForm.firstName || '').charAt(0) + (profileForm.lastName || '').charAt(0) }}
                   </AvatarFallback>
                 </Avatar>
                 <div class="space-y-2">
@@ -302,14 +493,14 @@ const selectAvatar = (avatarUrl: string) => {
                                 v-for="avatar in avatarOptions"
                                 :key="avatar.id"
                                 type="button"
-                                variant="outline"
+                                variant="ghost"
                                 size="sm"
-                                class="p-0 h-12 w-12"
+                                class="p-0 h-12 w-12 hover:bg-transparent"
                                 @click="selectAvatar(avatar.url)"
                               >
-                                <Avatar class="h-full w-full">
+                                <Avatar class="h-full w-full rounded-full overflow-hidden">
                                   <AvatarImage :src="avatar.url" :alt="'Avatar ' + avatar.id" />
-                                  <AvatarFallback>{{ avatar.id }}</AvatarFallback>
+                                  <AvatarFallback class="rounded-full">{{ avatar.id }}</AvatarFallback>
                                 </Avatar>
                               </Button>
                             </div>
@@ -344,7 +535,7 @@ const selectAvatar = (avatarUrl: string) => {
                       variant="outline" 
                       size="sm"
                       @click="removeAvatar"
-                      :disabled="!profileForm.avatar"
+                      :disabled="!profileForm.selectedAvatar"
                     >
                       <Trash2 class="h-4 w-4" />
                       Supprimer
@@ -357,10 +548,20 @@ const selectAvatar = (avatarUrl: string) => {
             <!-- Personal Information -->
             <div class="grid gap-4">
               <div class="grid gap-2">
-                <Label for="name">Nom complet</Label>
+                <Label for="firstName">Prénom</Label>
                 <Input
-                  id="name"
-                  v-model="profileForm.name"
+                  id="firstName"
+                  v-model="profileForm.firstName"
+                  placeholder="Votre prénom"
+                  :disabled="isSaving"
+                />
+              </div>
+
+              <div class="grid gap-2">
+                <Label for="lastName">Nom</Label>
+                <Input
+                  id="lastName"
+                  v-model="profileForm.lastName"
                   placeholder="Votre nom"
                   :disabled="isSaving"
                 />
@@ -434,6 +635,17 @@ const selectAvatar = (avatarUrl: string) => {
                 </Input>
               </div>
             </div>
+
+            <div v-if="profileError" class="text-sm text-destructive">
+              {{ profileError }}
+            </div>
+
+            <div v-if="profileSuccess" class="flex items-center gap-2 text-sm text-green-600 animate-fade-in">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Profil mis à jour avec succès !
+            </div>
           </TabsContent>
 
           <!-- Security Tab -->
@@ -485,144 +697,144 @@ const selectAvatar = (avatarUrl: string) => {
                 </div>
                 <p class="text-sm text-muted-foreground">
                   Le mot de passe doit contenir :
-                  <ul class="space-y-1 mt-1">
-                    <li class="flex items-center gap-2">
-                      <svg
-                        class="h-4 w-4"
-                        :class="hasMinLength(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          v-if="hasMinLength(profileForm.newPassword)"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M5 13l4 4L19 7"
-                        />
-                        <path
-                          v-else
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      <span :class="hasMinLength(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
-                        Au moins 8 caractères
-                      </span>
-                    </li>
-                    <li class="flex items-center gap-2">
-                      <svg
-                        class="h-4 w-4"
-                        :class="hasUpperCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          v-if="hasUpperCase(profileForm.newPassword)"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M5 13l4 4L19 7"
-                        />
-                        <path
-                          v-else
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      <span :class="hasUpperCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
-                        Au moins une majuscule
-                      </span>
-                    </li>
-                    <li class="flex items-center gap-2">
-                      <svg
-                        class="h-4 w-4"
-                        :class="hasLowerCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          v-if="hasLowerCase(profileForm.newPassword)"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M5 13l4 4L19 7"
-                        />
-                        <path
-                          v-else
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      <span :class="hasLowerCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
-                        Au moins une minuscule
-                      </span>
-                    </li>
-                    <li class="flex items-center gap-2">
-                      <svg
-                        class="h-4 w-4"
-                        :class="hasNumber(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          v-if="hasNumber(profileForm.newPassword)"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M5 13l4 4L19 7"
-                        />
-                        <path
-                          v-else
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      <span :class="hasNumber(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
-                        Au moins un chiffre
-                      </span>
-                    </li>
-                    <li class="flex items-center gap-2">
-                      <svg
-                        class="h-4 w-4"
-                        :class="hasSpecialChar(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          v-if="hasSpecialChar(profileForm.newPassword)"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M5 13l4 4L19 7"
-                        />
-                        <path
-                          v-else
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      <span :class="hasSpecialChar(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
-                        Au moins un caractère spécial (@$!%*?&)
-                      </span>
-                    </li>
-                  </ul>
                 </p>
+                <ul class="space-y-1 text-sm text-muted-foreground">
+                  <li class="flex items-center gap-2">
+                    <svg
+                      class="h-4 w-4"
+                      :class="hasMinLength(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        v-if="hasMinLength(profileForm.newPassword)"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                      <path
+                        v-else
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span :class="hasMinLength(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins 8 caractères
+                    </span>
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <svg
+                      class="h-4 w-4"
+                      :class="hasUpperCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        v-if="hasUpperCase(profileForm.newPassword)"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                      <path
+                        v-else
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span :class="hasUpperCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins une majuscule
+                    </span>
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <svg
+                      class="h-4 w-4"
+                      :class="hasLowerCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        v-if="hasLowerCase(profileForm.newPassword)"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                      <path
+                        v-else
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span :class="hasLowerCase(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins une minuscule
+                    </span>
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <svg
+                      class="h-4 w-4"
+                      :class="hasNumber(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        v-if="hasNumber(profileForm.newPassword)"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                      <path
+                        v-else
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span :class="hasNumber(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins un chiffre
+                    </span>
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <svg
+                      class="h-4 w-4"
+                      :class="hasSpecialChar(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        v-if="hasSpecialChar(profileForm.newPassword)"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                      <path
+                        v-else
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span :class="hasSpecialChar(profileForm.newPassword) ? 'text-green-500' : 'text-muted-foreground'">
+                      Au moins un caractère spécial (@$!%*?&)
+                    </span>
+                  </li>
+                </ul>
               </div>
 
               <div class="grid gap-2">
@@ -670,16 +882,16 @@ const selectAvatar = (avatarUrl: string) => {
               </div>
             </div>
           </TabsContent>
-
-          <DialogFooter class="mt-6">
-            <Button type="submit" :disabled="isSaving">
-              <Save v-if="!isSaving" class="mr-2 h-4 w-4" />
-              <Loader2 v-else class="mr-2 h-4 w-4 animate-spin" />
-              {{ isSaving ? 'Enregistrement...' : 'Enregistrer' }}
-            </Button>
-          </DialogFooter>
         </form>
       </Tabs>
+
+      <DialogFooter class="sticky bottom-0 bg-background pt-4 mt-6">
+        <Button type="submit" :disabled="isSaving" @click="handleSaveProfile">
+          <Save v-if="!isSaving" class="mr-2 h-4 w-4" />
+          <Loader2 v-else class="mr-2 h-4 w-4 animate-spin" />
+          {{ isSaving ? 'Enregistrement...' : 'Enregistrer' }}
+        </Button>
+      </DialogFooter>
     </DialogContent>
   </Dialog>
 
@@ -691,15 +903,21 @@ const selectAvatar = (avatarUrl: string) => {
             size="lg"
             class="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
           >
-            <Avatar class="h-8 w-8 rounded-lg">
-              <AvatarImage :src="user.avatar" :alt="user.name" />
-              <AvatarFallback class="rounded-lg">
-                {{ user.name.split(' ').map(n => n[0]).join('') }}
+            <Avatar class="h-8 w-8 rounded-full overflow-hidden">
+              <AvatarImage 
+                :src="currentAvatar" 
+                :alt="userName"
+                @error="handleAvatarError"
+                :class="{ 'opacity-0': isAvatarLoading }"
+                @load="isAvatarLoading = false"
+              />
+              <AvatarFallback class="rounded-full">
+                {{ avatarFallback }}
               </AvatarFallback>
             </Avatar>
             <div class="grid flex-1 text-left text-sm leading-tight">
-              <span class="truncate font-semibold">{{ user.name }}</span>
-              <span class="truncate text-xs">{{ user.email }}</span>
+              <span class="truncate font-semibold">{{ userName }}</span>
+              <span class="truncate text-xs">{{ userEmail }}</span>
             </div>
             <ChevronsUpDown class="ml-auto size-4" />
           </SidebarMenuButton>
@@ -712,15 +930,21 @@ const selectAvatar = (avatarUrl: string) => {
         >
           <DropdownMenuLabel class="p-0 font-normal">
             <div class="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-              <Avatar class="h-8 w-8 rounded-lg">
-                <AvatarImage :src="user.avatar" :alt="user.name" />
-                <AvatarFallback class="rounded-lg">
-                  {{ user.name.split(' ').map(n => n[0]).join('') }}
+              <Avatar class="h-8 w-8 rounded-full overflow-hidden">
+                <AvatarImage 
+                  :src="currentAvatar" 
+                  :alt="userName"
+                  @error="handleAvatarError"
+                  :class="{ 'opacity-0': isAvatarLoading }"
+                  @load="isAvatarLoading = false"
+                />
+                <AvatarFallback class="rounded-full">
+                  {{ avatarFallback }}
                 </AvatarFallback>
               </Avatar>
               <div class="grid flex-1 text-left text-sm leading-tight">
-                <span class="truncate font-semibold">{{ user.name }}</span>
-                <span class="truncate text-xs">{{ user.email }}</span>
+                <span class="truncate font-semibold">{{ userName }}</span>
+                <span class="truncate text-xs">{{ userEmail }}</span>
               </div>
             </div>
           </DropdownMenuLabel>

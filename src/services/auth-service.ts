@@ -1,4 +1,4 @@
-import { auth } from './api'
+import { auth, user, type UserProfile } from './api'
 import router from '@/router'
 
 export class AuthService {
@@ -17,11 +17,24 @@ export class AuthService {
     localStorage.removeItem(this.TOKEN_KEY)
   }
 
-  static setUser(user: any): void {
-    localStorage.setItem(this.USER_KEY, JSON.stringify(user))
+  static async setUser(userData: any): Promise<void> {
+    try {
+      // Get the full user profile
+      const response = await user.getProfile()
+      if (response.success && response.data) {
+        localStorage.setItem(this.USER_KEY, JSON.stringify(response.data))
+      } else {
+        console.error('Failed to get user profile:', response.message)
+        localStorage.setItem(this.USER_KEY, JSON.stringify(userData))
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error)
+      // If we can't get the profile, store what we have
+      localStorage.setItem(this.USER_KEY, JSON.stringify(userData))
+    }
   }
 
-  static getUser(): any {
+  static getUser(): UserProfile | null {
     const user = localStorage.getItem(this.USER_KEY)
     if (!user) return null
     try {
