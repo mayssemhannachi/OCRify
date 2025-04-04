@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios'
 import type { RegisterDto, LoginDto, AuthResponse } from '@/types/auth'
-import type { BackendDocumentDto, DocumentSearchResultDto, DocumentSearchDto } from '@/types/documents'
+import type { BackendDocumentDto, DocumentSearchResultDto, DocumentSearchDto, DashboardResponse } from '@/types/documents'
 import router from '@/router'
 
 const api = axios.create({
@@ -430,12 +430,12 @@ export const documents = {
   },
   getRecent: async () => {
     try {
-      console.log('🔵 [documents.getRecent] Fetching recent documents')
-      const response = await api.get('/api/Documents/dashboard')
-      console.log('✅ [documents.getRecent] Documents fetched successfully:', response.data)
+      console.log('🔵 [documents.getRecent] Fetching dashboard data')
+      const response = await api.get<DashboardResponse>('/api/Documents/dashboard')
+      console.log('✅ [documents.getRecent] Dashboard data fetched successfully:', response.data)
       return response
     } catch (error: any) {
-      console.error('❌ [documents.getRecent] Failed to fetch documents:', error.response?.data || error.message)
+      console.error('❌ [documents.getRecent] Failed to fetch dashboard data:', error.response?.data || error.message)
       throw error
     }
   },

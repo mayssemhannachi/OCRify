@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { QuillEditor } from '@vueup/vue-quill'
+import '@vueup/vue-quill/dist/vue-quill.snow.css'
 
 import {
   Upload,
@@ -27,6 +29,9 @@ import {
   ListOrdered,
   Undo,
   Redo,
+  Copy,
+  FileDown,
+  FileText as FileTextIcon,
 } from 'lucide-vue-next'
 import Button from '@/components/ui/button/Button.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -44,7 +49,6 @@ import {
 } from '@/components/ui/sidebar'
 import SidebarLeft from '@/components/SidebarLeft.vue'
 import Progress from '@/components/ui/progress/Progress.vue'
-import RichTextEditor from '@/components/RichTextEditor.vue'
 import FileUpload from '@/components/ui/file-upload/FileUpload.vue'
 import { ocr, documents } from '@/services/api'
 
@@ -56,6 +60,32 @@ interface Scan {
   accuracy: number
   text: string
   type: string
+}
+
+interface Document {
+  id: string
+  fileName: string
+  ocrText?: string
+  enhancedText?: string
+  status: number
+  uploadDate: string
+  language: string
+  fileType: string
+}
+
+interface SelectedDocument {
+  id: string
+  name: string
+  text: string
+}
+
+interface FileDocument {
+  id: string
+  fileName: string
+  text: string
+  confidence: number
+  language: string
+  processingTime: number
 }
 
 const isProcessing = ref(false)
@@ -82,7 +112,7 @@ const uploadingFiles = ref<Array<{
   progress: number
   status: 'uploading' | 'complete' | 'error'
 }>>([])
-const selectedDocument = ref<{ name: string; text: string } | null>(null)
+const selectedDocument = ref<SelectedDocument | null>(null)
 
 // Add new refs for preview features
 const imageRotation = ref(0)
@@ -130,16 +160,43 @@ const ocrMode = ref('accurate')
 const autoRotate = ref(true)
 const enhanceQuality = ref(true)
 
-const handleFileUpload = null
-const handleDrop = null
-const handleDragOver = null
-const handleDragLeave = null
+const handleFileUpload = (files: File[]) => {
+  if (files.length > 0) {
+    selectedFile.value = files[0]
+    if (files[0].type.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        previewUrl.value = e.target?.result as string
+      }
+      reader.readAsDataURL(files[0])
+    }
+  }
+}
+
+const handleDrop = (event: DragEvent) => {
+  event.preventDefault()
+  dragOver.value = false
+  
+  if (event.dataTransfer?.files) {
+    handleFileUpload(Array.from(event.dataTransfer.files))
+  }
+}
+
+const handleDragOver = (event: DragEvent) => {
+  event.preventDefault()
+  dragOver.value = true
+}
+
+const handleDragLeave = (event: DragEvent) => {
+  event.preventDefault()
+  dragOver.value = false
+}
 
 const removeFile = (index: number) => {
   files.value.splice(index, 1)
 }
 
-const handleFileSelect = (fileOrDoc: File | { fileName: string; text: string; confidence: number; language: string; processingTime: number }) => {
+const handleFileSelect = (fileOrDoc: File | FileDocument) => {
   if (fileOrDoc instanceof File) {
     selectedFile.value = fileOrDoc
     if (fileOrDoc.type.startsWith('image/')) {
@@ -150,7 +207,11 @@ const handleFileSelect = (fileOrDoc: File | { fileName: string; text: string; co
       reader.readAsDataURL(fileOrDoc)
     }
   } else {
-    selectedDocument.value = { name: fileOrDoc.fileName, text: fileOrDoc.text }
+    selectedDocument.value = { 
+      id: fileOrDoc.id,
+      name: fileOrDoc.fileName, 
+      text: fileOrDoc.text 
+    }
   }
   showPreview.value = true
 }
@@ -238,11 +299,9 @@ const startProcessing = async () => {
 
 const handleUploadSuccess = async (files: File[]) => {
   try {
-    // Since we're limiting to one file, we'll only process the first file
     const file = files[0]
     selectedFile.value = file
     
-    // Generate preview if it's an image
     if (file.type.startsWith('image/')) {
       const reader = new FileReader()
       reader.onload = (e) => {
@@ -251,11 +310,9 @@ const handleUploadSuccess = async (files: File[]) => {
       reader.readAsDataURL(file)
     }
     
-    // Start OCR processing
     isProcessing.value = true
     processingProgress.value = 0
     
-    // Simulate OCR progress
     const progressInterval = setInterval(() => {
       if (processingProgress.value < 90) {
         processingProgress.value += Math.random() * 10
@@ -263,34 +320,36 @@ const handleUploadSuccess = async (files: File[]) => {
     }, 200)
     
     try {
-      // Process the file with OCR
       const response = await ocr.process(file)
       clearInterval(progressInterval)
       processingProgress.value = 100
       
-      // Update the editor with extracted text
-      editorContent.value = response.data.text || ''
-      extractedText.value = response.data.text || ''
-      
-      // Add to processed results
-      processedResults.value.unshift({
-        fileName: file.name,
-        text: response.data.text || '',
-        confidence: response.data.accuracy || 95,
-        language: selectedLanguage.value,
-        processingTime: 1.5
-      })
-      
-      // Refresh the recent documents list
-      await fetchRecentDocuments()
-      
+      if (response.data.success) {
+        editorContent.value = response.data.data.text || exampleText
+        extractedText.value = response.data.data.text || exampleText
+        
+        processedResults.value.unshift({
+          fileName: file.name,
+          text: response.data.data.text || exampleText,
+          confidence: response.data.data.accuracy || 95,
+          language: selectedLanguage.value,
+          processingTime: response.data.data.processingTime || 1.5
+        })
+        
+        await fetchRecentDocuments()
+      }
     } catch (error) {
       console.error('OCR processing error:', error)
+      // Use example text if there's an error
+      editorContent.value = exampleText
+      extractedText.value = exampleText
     }
   } catch (error) {
     console.error('Error processing file:', error)
+    // Use example text if there's an error
+    editorContent.value = exampleText
+    extractedText.value = exampleText
   } finally {
-    // Reset processing state
     isProcessing.value = false
     processingProgress.value = 0
   }
@@ -308,7 +367,6 @@ const startOCR = async () => {
     isProcessing.value = true
     processingProgress.value = 0
     
-    // Simulate OCR progress
     const progressInterval = setInterval(() => {
       if (processingProgress.value < 90) {
         processingProgress.value += Math.random() * 10
@@ -316,32 +374,47 @@ const startOCR = async () => {
     }, 200)
     
     if (selectedFile.value) {
-      // Process the file with OCR
       const response = await ocr.process(selectedFile.value)
       clearInterval(progressInterval)
       processingProgress.value = 100
       
-      // Update the editor with extracted text
-      editorContent.value = response.data.text || ''
-      extractedText.value = response.data.text || ''
-      
-      // Add to processed results
-      processedResults.value.unshift({
-        fileName: selectedFile.value.name,
-        text: response.data.text || '',
-        confidence: response.data.accuracy || 95,
-        language: selectedLanguage.value,
-        processingTime: 1.5 // This could come from the API response
-      })
+      if (response.data.success) {
+        editorContent.value = response.data.data.text || ''
+        extractedText.value = response.data.data.text || ''
+        
+        processedResults.value.unshift({
+          fileName: selectedFile.value.name,
+          text: response.data.data.text || '',
+          confidence: response.data.data.accuracy || 95,
+          language: selectedLanguage.value,
+          processingTime: response.data.data.processingTime || 1.5
+        })
+        
+        await fetchRecentDocuments()
+      }
+    } else if (selectedDocument.value) {
+      const documentId = parseInt(selectedDocument.value.id)
+      if (isNaN(documentId)) {
+        throw new Error('Invalid document ID')
+      }
+      const response = await documents.scan(documentId)
+      if (response.data.success) {
+        clearInterval(progressInterval)
+        processingProgress.value = 100
+        
+        if (response.data.data?.text) {
+          editorContent.value = response.data.data.text
+          extractedText.value = response.data.data.text
+        }
+      }
     }
   } catch (error) {
     console.error('OCR processing error:', error)
-    // Show error in UI
   } finally {
     setTimeout(() => {
       isProcessing.value = false
       processingProgress.value = 0
-    }, 500) // Keep success state visible briefly
+    }, 500)
   }
 }
 
@@ -359,7 +432,16 @@ const recentDocuments = ref<Array<{
 const fetchRecentDocuments = async () => {
   try {
     const response = await documents.getRecent()
-    recentDocuments.value = response.data.data
+    if (response.data.success) {
+      recentDocuments.value = response.data.data.recentDocuments.map((doc: any) => ({
+        id: doc.id,
+        name: doc.fileName,
+        status: doc.status,
+        createdAt: doc.uploadDate,
+        language: doc.language,
+        type: doc.fileType
+      }))
+    }
   } catch (error) {
     console.error('Error fetching recent documents:', error)
   }
@@ -370,20 +452,50 @@ onMounted(() => {
   fetchRecentDocuments()
 })
 
-// Update handleDocumentSelect to fetch full document details
+// Update handleDocumentSelect to include example text
 const handleDocumentSelect = async (doc: { id: string; name: string }) => {
   try {
     const response = await documents.getById(doc.id)
-    selectedDocument.value = {
-      name: response.data.data.name,
-      text: response.data.data.text || ''
+    if (response.data.success) {
+      const document = response.data.data as Document
+      selectedDocument.value = {
+        id: document.id,
+        name: document.fileName,
+        text: document.ocrText || document.enhancedText || exampleText
+      }
+      selectedFile.value = null
+      previewUrl.value = ''
+      editorContent.value = document.ocrText || document.enhancedText || exampleText
     }
-    selectedFile.value = null
-    previewUrl.value = ''
-    editorContent.value = response.data.data.text || ''
   } catch (error) {
     console.error('Error fetching document details:', error)
+    // Use example text if there's an error
+    selectedDocument.value = {
+      id: 'example',
+      name: 'Exemple de document',
+      text: exampleText
+    }
+    editorContent.value = exampleText
   }
+}
+
+// Update the preview handler to include id
+const handlePreview = (fileOrDoc: { id: string; fileName: string; text: string }) => {
+  if (fileOrDoc instanceof File) {
+    selectedFile.value = fileOrDoc
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      previewUrl.value = e.target?.result as string
+    }
+    reader.readAsDataURL(fileOrDoc)
+  } else {
+    selectedDocument.value = { 
+      id: fileOrDoc.id,
+      name: fileOrDoc.fileName, 
+      text: fileOrDoc.text 
+    }
+  }
+  showPreview.value = true
 }
 
 // Add type for editor formatting keys
@@ -399,6 +511,83 @@ const toggleFormat = (format: EditorFormatKey) => {
     editorFormatting.value[format] = !editorFormatting.value[format]
   }
 }
+
+// Update copyText function to use plain text
+const copyText = async () => {
+  try {
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = editorContent.value
+    const plainText = tempDiv.textContent || tempDiv.innerText
+    await navigator.clipboard.writeText(plainText)
+  } catch (err) {
+    console.error('Failed to copy text:', err)
+  }
+}
+
+const exportAsDoc = () => {
+  const content = editorContent.value
+  const blob = new Blob([content], { type: 'application/msword' })
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${selectedFile.value?.name || selectedDocument.value?.name || 'document'}.doc`
+  document.body.appendChild(a)
+  a.click()
+  window.URL.revokeObjectURL(url)
+  document.body.removeChild(a)
+}
+
+const exportAsPdf = async () => {
+  const element = document.createElement('div')
+  element.innerHTML = editorContent.value
+  
+  const opt = {
+    margin: [10, 10, 20, 10] as [number, number, number, number],
+    filename: `${selectedFile.value?.name || selectedDocument.value?.name || 'document'}.pdf`,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { 
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      letterRendering: true
+    },
+    jsPDF: { 
+      unit: 'mm', 
+      format: 'a4', 
+      orientation: 'portrait',
+      compress: true
+    }
+  }
+  try {
+    const html2pdf = (await import('html2pdf.js')).default
+    await html2pdf().set(opt).from(element).save()
+  } catch (err) {
+    console.error('Failed to export PDF:', err)
+  }
+}
+
+// Update Quill editor options
+const editorOptions = {
+  theme: 'snow',
+  modules: {
+    toolbar: 'full'
+  },
+  placeholder: 'Le texte extrait apparaîtra ici...',
+  readOnly: computed(() => isProcessing.value || (!selectedFile.value && !selectedDocument.value))
+}
+
+// Add ref for Quill instance
+const quillInstance = ref<any>(null)
+
+// Add method to handle editor ready
+const onEditorReady = (quill: any) => {
+  quillInstance.value = quill
+  // Enable the editor
+  quill.enable()
+}
+
+// Remove example text
+const exampleText = ''
 </script>
 
 <template>
@@ -546,14 +735,36 @@ const toggleFormat = (format: EditorFormatKey) => {
             <!-- Text Editor -->
             <Card>
               <CardHeader>
-                <CardTitle>Texte extrait</CardTitle>
-                <CardDescription>Le texte extrait du document apparaîtra ici</CardDescription>
+                <div class="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Texte extrait</CardTitle>
+                    <CardDescription>Le texte extrait du document apparaîtra ici</CardDescription>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <Button variant="outline" size="sm" @click="copyText" :disabled="!editorContent">
+                      <Copy class="h-4 w-4 mr-2" />
+                      Copier
+                    </Button>
+                    <Button variant="outline" size="sm" @click="exportAsDoc" :disabled="!editorContent">
+                      <FileTextIcon class="h-4 w-4 mr-2" />
+                      DOC
+                    </Button>
+                    <Button variant="outline" size="sm" @click="exportAsPdf" :disabled="!editorContent">
+                      <FileDown class="h-4 w-4 mr-2" />
+                      PDF
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div class="relative">
-                  <RichTextEditor 
-                    v-model="editorContent"
-                    :disabled="isProcessing || (!selectedFile && !selectedDocument)"
+                  <QuillEditor
+                    v-model:content="editorContent"
+                    contentType="html"
+                    :options="editorOptions"
+                    toolbar="full"
+                    class="min-height-300"
+                    @ready="onEditorReady"
                   />
                   
                   <div v-if="isProcessing" class="absolute inset-0 bg-background/80 flex items-center justify-center">
@@ -597,4 +808,10 @@ const toggleFormat = (format: EditorFormatKey) => {
       </div>
     </SidebarInset>
   </SidebarProvider>
-</template> 
+</template>
+
+<style>
+.min-height-300 {
+  min-height: 300px;
+}
+</style> 

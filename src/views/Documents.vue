@@ -428,15 +428,25 @@ const handleDownload = async (docId: string) => {
     const response = await documentsService.getById(docId)
     if (response.data?.success && response.data.data) {
       const doc = response.data.data
-      // Use the download endpoint with the document ID
-      const downloadUrl = `${import.meta.env.VITE_API_URL}/api/Documents/${docId}/download`
-      // Create a temporary link to download the file
-      const link = document.createElement('a')
-      link.href = downloadUrl
-      link.download = doc.fileName
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+      
+      // Get the file using the API service
+      const fileResponse = await documentsService.getFile(docId)
+      if (fileResponse.data) {
+        // Create a blob from the response data
+        const blob = new Blob([fileResponse.data], { type: doc.fileType })
+        // Create a URL for the blob
+        const url = window.URL.createObjectURL(blob)
+        // Create a temporary link element
+        const link = document.createElement('a')
+        link.href = url
+        link.download = doc.fileName
+        // Append to body, click, and remove
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        // Clean up the URL
+        window.URL.revokeObjectURL(url)
+      }
     }
   } catch (error) {
     console.error('Error downloading document:', error)

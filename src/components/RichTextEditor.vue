@@ -29,6 +29,7 @@ import {
   Undo,
   Redo,
 } from 'lucide-vue-next'
+import { watch } from 'vue'
 
 const lowlight = createLowlight(common)
 lowlight.register('js', js)
@@ -89,6 +90,20 @@ const editor = useEditor({
   onUpdate: ({ editor }) => {
     emit('update:modelValue', editor.getHTML())
   },
+})
+
+// Watch for modelValue changes
+watch(() => props.modelValue, (newValue) => {
+  if (editor.value && newValue !== editor.value.getHTML()) {
+    editor.value.commands.setContent(newValue)
+  }
+})
+
+// Watch for disabled changes
+watch(() => props.disabled, (newValue) => {
+  if (editor.value) {
+    editor.value.setEditable(!newValue)
+  }
 })
 </script>
 

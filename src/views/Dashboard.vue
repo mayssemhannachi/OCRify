@@ -3,7 +3,7 @@ export const iframeHeight = '800px'
 export const description = 'A left and right sidebar.'
 </script>
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Upload,
@@ -74,16 +74,26 @@ const trashedDocuments = ref([
 const showRestoreAlert = ref(false)
 
 // Mock data for dashboard statistics
-const stats = ref({
-  documentsProcessed: 156,
+const stats = ref<{
+  documentsProcessed: number;
+  processedDocuments: number;
+  averageAccuracy: number;
+  totalStorage: string;
+  processingTime: string;
+  totalCharacters: string;
+  languagesDetected: string[];
+  successRate: number;
+  documentsToday: number;
+}>({
+  documentsProcessed: 0,
   processedDocuments: 0,
-  averageAccuracy: 97.2,
-  totalStorage: '2.3 GB',
-  processingTime: '1.8s',
-  totalCharacters: '1.2M',
-  languagesDetected: ['Français', 'English', 'العربية'],
-  successRate: 98.5,
-  documentsToday: 12
+  averageAccuracy: 0,
+  totalStorage: '0 Bytes',
+  processingTime: '0m',
+  totalCharacters: '0',
+  languagesDetected: [],
+  successRate: 0,
+  documentsToday: 0
 })
 
 // Add types at the top of the script section
@@ -111,112 +121,204 @@ const recentActivity = ref<Document[]>([])
 // Add new function to fetch recent documents
 const fetchRecentDocuments = async () => {
   try {
+    console.log('🔵 [Dashboard View] Starting to fetch recent documents')
     const response = await documents.getRecent()
+    console.log('✅ [Dashboard View] Received response:', response)
+    
     if (response.data?.success && response.data.data) {
+      console.log('✅ [Dashboard View] Processing dashboard data')
+      
+      const dashboardData = response.data.data
+      console.log('📊 [Dashboard View] Dashboard data:', dashboardData)
+      
+      // Process monthly data
+      processMonthlyData(dashboardData.recentDocuments)
+      
+      // Calculate total storage used from recent documents
+      const totalStorage = dashboardData.recentDocuments.reduce((acc: number, doc: any) => acc + (doc.fileSize || 0), 0)
+      
+      // Calculate documents processed today
+      const today = new Date().toDateString()
+      const documentsToday = dashboardData.recentDocuments.filter((doc: any) => 
+        new Date(doc.uploadDate).toDateString() === today
+      ).length
+      
       // Update stats from dashboard data
-      stats.value.documentsProcessed = response.data.data.totalDocuments
-      stats.value.processedDocuments = response.data.data.processedDocuments
+      console.log('📊 [Dashboard View] Updating statistics:', {
+        totalDocuments: dashboardData.totalDocuments,
+        processedDocuments: dashboardData.processedDocuments,
+        totalStorage,
+        documentsToday
+      })
+      
+      stats.value = {
+        documentsProcessed: dashboardData.totalDocuments || 0,
+        processedDocuments: dashboardData.processedDocuments || 0,
+        averageAccuracy: dashboardData.processingSuccessRate || 0,
+        totalStorage: formatFileSize(totalStorage),
+        processingTime: formatTime(dashboardData.averageProcessingTime || 0),
+        totalCharacters: '0', // TODO: Add this to backend response
+        languagesDetected: dashboardData.documentsByLanguage ? Object.keys(dashboardData.documentsByLanguage) : [],
+        successRate: dashboardData.processingSuccessRate || 0,
+        documentsToday
+      }
+      
+      console.log('📈 [Dashboard View] Updated stats:', stats.value)
 
       // Map recent documents to activity format
-      recentActivity.value = response.data.data.recentDocuments.map((doc: any) => ({
-        id: doc.id,
-        name: doc.name,
-        action: 'upload',
-        status: doc.status,
-        accuracy: doc.accuracy,
-        timestamp: new Date(doc.createdAt).toLocaleString(),
-        type: doc.type,
-        details: 'Document téléchargé avec succès',
-        actionDescription: 'Téléchargement effectué',
-        actionResult: doc.accuracy ? `${doc.accuracy}% de précision` : 'Document prêt pour traitement OCR'
-      }))
+      console.log('📄 [Dashboard View] Processing recent documents')
+      recentActivity.value = dashboardData.recentDocuments.map((doc: any) => {
+        const activity = {
+          id: doc.id,
+          name: doc.fileName,
+          action: 'upload',
+          status: doc.status || 'pending',
+          accuracy: doc.accuracy,
+          timestamp: new Date(doc.uploadDate).toLocaleString(),
+          type: doc.fileType?.includes('pdf') ? 'pdf' : 'image',
+          details: 'Document téléchargé avec succès',
+          actionDescription: 'Téléchargement effectué',
+          actionResult: doc.accuracy ? `${doc.accuracy}% de précision` : 'Document prêt pour traitement OCR'
+        }
+        console.log('📄 [Dashboard View] Mapped document:', activity)
+        return activity
+      })
+      
+      console.log('⚡ [Dashboard View] Updated recent activity:', recentActivity.value)
+    } else {
+      console.error('❌ [Dashboard View] API returned error:', response.data?.message)
     }
-  } catch (error) {
-    console.error('Error fetching recent documents:', error)
+  } catch (err: unknown) {
+    const error = err as Error
+    console.error('❌ [Dashboard View] Error fetching recent documents:', error)
+    console.error('❌ [Dashboard View] Error details:', {
+      message: error.message,
+      response: (error as any).response?.data,
+      status: (error as any).response?.status
+    })
   }
 }
 
-// Add onMounted hook
-onMounted(() => {
-  fetchRecentDocuments()
-})
+// Add helper functions for formatting
+const formatFileSize = (bytes: number) => {
+  console.log('📏 [Dashboard View] Formatting file size:', bytes)
+  if (bytes === 0) return '0 Bytes'
+  const k = 1024
+  const sizes = ['Bytes', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  const result = parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  console.log('📏 [Dashboard View] Formatted size:', result)
+  return result
+}
 
-// Watch for route changes to reset state when needed
-watch(() => route.path, (newPath) => {
-  if (newPath === '/dashboard') {
-    uploadedFile.value = null
-    processedText.value = ''
+const formatTime = (minutes: number) => {
+  console.log('⏱️ [Dashboard View] Formatting time:', minutes)
+  if (minutes < 60) {
+    const result = `${Math.round(minutes)}m`
+    console.log('⏱️ [Dashboard View] Formatted time:', result)
+    return result
   }
-})
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = Math.round(minutes % 60)
+  const result = `${hours}h ${remainingMinutes}m`
+  console.log('⏱️ [Dashboard View] Formatted time:', result)
+  return result
+}
 
-const { toast } = useToast()
+// Add state variables
 const isUploading = ref(false)
 const uploadProgress = ref(0)
+const { toast } = useToast()
 
+// Add refresh interval
+const refreshInterval = ref<number | null>(null)
+
+// Add force refresh function
+const forceRefresh = async () => {
+  console.log('🔄 [Dashboard View] Force refresh triggered')
+  if (refreshInterval.value) {
+    clearInterval(refreshInterval.value)
+  }
+  await fetchRecentDocuments()
+  startPeriodicRefresh()
+}
+
+// Add periodic refresh function
+const startPeriodicRefresh = () => {
+  if (refreshInterval.value) {
+    clearInterval(refreshInterval.value)
+  }
+  refreshInterval.value = window.setInterval(() => {
+    console.log('🔄 [Dashboard View] Periodic refresh triggered')
+    fetchRecentDocuments()
+  }, 30000)
+}
+
+// Add cleanup function
+const stopPeriodicRefresh = () => {
+  if (refreshInterval.value) {
+    clearInterval(refreshInterval.value)
+    refreshInterval.value = null
+  }
+}
+
+// Modify onMounted
+onMounted(() => {
+  console.log('🚀 [Dashboard View] Component mounted')
+  fetchRecentDocuments()
+  startPeriodicRefresh()
+})
+
+// Add onUnmounted
+onUnmounted(() => {
+  console.log('🛑 [Dashboard View] Component unmounted')
+  stopPeriodicRefresh()
+})
+
+// Add route change watcher
+watch(() => route.path, () => {
+  console.log('🔄 [Dashboard View] Route changed, refreshing data')
+  forceRefresh()
+})
+
+// Modify handleFileUpload to use forceRefresh
 const handleFileUpload = async (event: Event) => {
   const input = event.target as HTMLInputElement
   if (input.files?.length) {
     try {
+      console.log('🔵 [Dashboard View] Starting file upload')
       isUploading.value = true
       uploadProgress.value = 0
       
       if (input.files.length > 1) {
-        // Handle bulk upload
-        console.log('🔵 Starting bulk upload of', input.files.length, 'files')
+        console.log('📦 [Dashboard View] Processing bulk upload of', input.files.length, 'files')
         const response = await documents.bulkUpload(Array.from(input.files))
-        console.log('✅ Bulk upload response:', response.data)
+        console.log('✅ [Dashboard View] Bulk upload response:', response.data)
         
         if (response.data?.success) {
+          console.log('✅ [Dashboard View] Bulk upload successful')
           toast({
             title: 'Documents téléchargés',
             description: `${input.files.length} documents ont été téléchargés avec succès.`
           })
-          
-          // Add each file to recent activity
-          Array.from(input.files).forEach((file, index) => {
-            recentActivity.value.unshift({
-              id: Date.now() + index,
-              name: file.name,
-              action: 'upload',
-              status: 'success',
-              timestamp: new Date().toLocaleString(),
-              type: file.type.includes('pdf') ? 'pdf' : 'image',
-              details: 'Document téléchargé avec succès',
-              actionDescription: 'Téléchargement effectué',
-              actionResult: 'Document prêt pour traitement OCR'
-            })
-          })
-          
-          // Refresh the recent documents list
-          await fetchRecentDocuments()
+          await forceRefresh()
         } else {
           throw new Error('Upload failed: ' + (response.data?.message || 'Unknown error'))
         }
       } else {
         // Handle single file upload
         const file = input.files[0]
-        console.log('🔵 Starting single file upload:', file.name)
+        console.log('📄 [Dashboard View] Processing single file upload:', file.name)
         const response = await documents.upload(file)
-        console.log('✅ Single file upload response:', response.data)
+        console.log('✅ [Dashboard View] Single file upload response:', response.data)
         
         if (response.data?.success) {
+          console.log('✅ [Dashboard View] Single file upload successful')
           toast({
             title: 'Document téléchargé',
             description: 'Le document a été téléchargé avec succès.'
           })
-          
-          // Add to recent activity
-          recentActivity.value.unshift({
-            id: Date.now(),
-            name: file.name,
-            action: 'upload',
-            status: 'success',
-            timestamp: new Date().toLocaleString(),
-            type: file.type.includes('pdf') ? 'pdf' : 'image',
-            details: 'Document téléchargé avec succès',
-            actionDescription: 'Téléchargement effectué',
-            actionResult: 'Document prêt pour traitement OCR'
-          })
+          await forceRefresh()
         } else {
           throw new Error('Upload failed: ' + (response.data?.message || 'Unknown error'))
         }
@@ -226,8 +328,8 @@ const handleFileUpload = async (event: Event) => {
       input.value = ''
       
     } catch (error: any) {
-      console.error('❌ Upload error:', error)
-      console.error('❌ Error details:', error.response?.data || error.message)
+      console.error('❌ [Dashboard View] Upload error:', error)
+      console.error('❌ [Dashboard View] Error details:', error.response?.data || error.message)
       
       toast({
         title: 'Erreur de téléchargement',
@@ -236,6 +338,7 @@ const handleFileUpload = async (event: Event) => {
       })
       
       // Add failed upload to recent activity
+      console.log('⚠️ [Dashboard View] Adding failed upload to recent activity:', input.files[0].name)
       recentActivity.value.unshift({
         id: Date.now(),
         name: input.files[0].name,
@@ -250,79 +353,59 @@ const handleFileUpload = async (event: Event) => {
     } finally {
       isUploading.value = false
       uploadProgress.value = 0
+      console.log('🏁 [Dashboard View] Upload process completed')
     }
   }
 }
 
+// Add logging to drag and drop handlers
 const handleDrop = async (event: DragEvent) => {
   event.preventDefault()
   dragOver.value = false
   
   if (event.dataTransfer?.files.length) {
+    console.log('🔵 [Dashboard View] Starting drag and drop upload')
     try {
       isUploading.value = true
       uploadProgress.value = 0
       
       if (event.dataTransfer.files.length > 1) {
-        // Handle bulk upload
-        console.log('🔵 Starting bulk upload of', event.dataTransfer.files.length, 'files')
+        console.log('📦 [Dashboard View] Processing bulk drag and drop upload of', event.dataTransfer.files.length, 'files')
         const response = await documents.bulkUpload(Array.from(event.dataTransfer.files))
-        console.log('✅ Bulk upload response:', response.data)
+        console.log('✅ [Dashboard View] Bulk drag and drop upload response:', response.data)
         
         if (response.data?.success) {
+          console.log('✅ [Dashboard View] Bulk drag and drop upload successful')
           toast({
             title: 'Documents téléchargés',
             description: `${event.dataTransfer.files.length} documents ont été téléchargés avec succès.`
           })
-          
-          // Add to recent activity
-          recentActivity.value.unshift({
-            id: Date.now(),
-            name: `${event.dataTransfer.files.length} documents`,
-            action: 'upload',
-            status: 'success',
-            timestamp: new Date().toLocaleString(),
-            type: 'multiple',
-            details: 'Documents téléchargés avec succès',
-            actionDescription: 'Téléchargement multiple effectué',
-            actionResult: `${event.dataTransfer.files.length} documents prêts pour traitement OCR`
-          })
+          await forceRefresh()
         } else {
           throw new Error('Upload failed: ' + (response.data?.message || 'Unknown error'))
         }
       } else {
         // Handle single file upload
         const file = event.dataTransfer.files[0]
-        console.log('🔵 Starting single file upload:', file.name)
+        console.log('📄 [Dashboard View] Processing single drag and drop upload:', file.name)
         const response = await documents.upload(file)
-        console.log('✅ Single file upload response:', response.data)
+        console.log('✅ [Dashboard View] Single drag and drop upload response:', response.data)
         
         if (response.data?.success) {
+          console.log('✅ [Dashboard View] Single drag and drop upload successful')
           toast({
             title: 'Document téléchargé',
             description: 'Le document a été téléchargé avec succès.'
           })
-          
-          // Add to recent activity
-          recentActivity.value.unshift({
-            id: Date.now(),
-            name: file.name,
-            action: 'upload',
-            status: 'success',
-            timestamp: new Date().toLocaleString(),
-            type: file.type.includes('pdf') ? 'pdf' : 'image',
-            details: 'Document téléchargé avec succès',
-            actionDescription: 'Téléchargement effectué',
-            actionResult: 'Document prêt pour traitement OCR'
-          })
+          await forceRefresh()
         } else {
           throw new Error('Upload failed: ' + (response.data?.message || 'Unknown error'))
         }
       }
       
     } catch (error: any) {
-      console.error('❌ Upload error:', error)
-      console.error('❌ Error details:', error.response?.data || error.message)
+      console.error('❌ [Dashboard View] Drag and drop upload error:', error)
+      console.error('❌ [Dashboard View] Error details:', error.response?.data || error.message)
       
       toast({
         title: 'Erreur de téléchargement',
@@ -331,6 +414,7 @@ const handleDrop = async (event: DragEvent) => {
       })
       
       // Add failed upload to recent activity
+      console.log('⚠️ [Dashboard View] Adding failed drag and drop upload to recent activity:', event.dataTransfer.files[0].name)
       recentActivity.value.unshift({
         id: Date.now(),
         name: event.dataTransfer.files[0].name,
@@ -345,16 +429,20 @@ const handleDrop = async (event: DragEvent) => {
     } finally {
       isUploading.value = false
       uploadProgress.value = 0
+      console.log('🏁 [Dashboard View] Drag and drop upload process completed')
     }
   }
 }
 
+// Add logging to drag and drop state handlers
 const handleDragOver = (event: DragEvent) => {
   event.preventDefault()
+  console.log('🔄 [Dashboard View] Drag over state changed to true')
   dragOver.value = true
 }
 
 const handleDragLeave = () => {
+  console.log('🔄 [Dashboard View] Drag over state changed to false')
   dragOver.value = false
 }
 
@@ -425,6 +513,7 @@ const handleRestore = (docId: number) => {
 }
 
 const handleDelete = (docId: number) => {
+  console.log('🗑️ [Dashboard View] Deleting document:', docId)
   trashedDocuments.value = trashedDocuments.value.filter(doc => doc.id !== docId)
   // Here you would typically make an API call to permanently delete the document
 }
@@ -436,11 +525,70 @@ const weeklyStats = ref({
   accuracy: [95, 97, 94, 98, 96, 93, 97]
 })
 
+// Update monthlyStats to use real data
 const monthlyStats = ref({
   labels: ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun'],
-  documents: [85, 102, 123, 115, 138, 156],
-  storage: [1.2, 1.5, 1.8, 2.0, 2.1, 2.3]
+  documents: [0, 0, 0, 0, 0, 0],
+  storage: [0, 0, 0, 0, 0, 0],
+  deleted: [0, 0, 0, 0, 0, 0] // Add deleted documents count
 })
+
+// Add function to process monthly data
+const processMonthlyData = (documents: any[]) => {
+  console.log('📊 [Dashboard View] Processing monthly data from documents:', documents)
+  
+  // Get current month and year
+  const now = new Date()
+  const currentMonth = now.getMonth()
+  const currentYear = now.getFullYear()
+  
+  // Initialize data for the last 6 months
+  const monthlyData = Array(6).fill(0).map((_, index) => {
+    const month = (currentMonth - index + 12) % 12
+    const year = currentYear - Math.floor((currentMonth - index) / 12)
+    return {
+      month,
+      year,
+      count: 0,
+      storage: 0,
+      deleted: 0
+    }
+  })
+  
+  // Process each document
+  documents.forEach(doc => {
+    const docDate = new Date(doc.uploadDate)
+    const docMonth = docDate.getMonth()
+    const docYear = docDate.getFullYear()
+    
+    // Find matching month in our data
+    const monthIndex = monthlyData.findIndex(data => 
+      data.month === docMonth && data.year === docYear
+    )
+    
+    if (monthIndex !== -1) {
+      if (doc.isDeleted) {
+        monthlyData[monthIndex].deleted++
+      } else {
+        monthlyData[monthIndex].count++
+        monthlyData[monthIndex].storage += doc.fileSize || 0
+      }
+    }
+  })
+  
+  // Update the monthlyStats ref
+  monthlyStats.value = {
+    labels: monthlyData.map(data => {
+      const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+      return monthNames[data.month]
+    }).reverse(),
+    documents: monthlyData.map(data => data.count).reverse(),
+    storage: monthlyData.map(data => data.storage).reverse(),
+    deleted: monthlyData.map(data => data.deleted).reverse()
+  }
+  
+  console.log('📈 [Dashboard View] Updated monthly stats:', monthlyStats.value)
+}
 
 // Document categories for quick filtering
 const documentCategories = [
@@ -451,12 +599,15 @@ const documentCategories = [
   { name: 'Autres', count: 51 }
 ]
 
+// Add logging to document preview handlers
 const handlePreview = (document: Document) => {
+  console.log('👁️ [Dashboard View] Opening preview for document:', document.name)
   selectedDocument.value = document
   showPreview.value = true
 }
 
 const closePreview = () => {
+  console.log('👁️ [Dashboard View] Closing document preview')
   showPreview.value = false
   selectedDocument.value = null
 }
@@ -487,7 +638,9 @@ const getOcrConfidenceColor = (accuracy: number | undefined) => {
   return 'text-red-500'
 }
 
+// Add logging to document actions
 const handleDownload = (docId: number) => {
+  console.log('⬇️ [Dashboard View] Initiating download for document:', docId)
   // Implement the download logic here
 }
 
@@ -646,11 +799,16 @@ const showViewModal = ref(false)
             </CardHeader>
             <CardContent>
               <div class="h-[300px]">
-                <!-- Add your chart component here -->
                 <div class="flex items-end justify-between h-full">
                   <div v-for="(doc, index) in monthlyStats.documents" :key="index" class="flex flex-col items-center gap-2 w-[15%]">
+                    <!-- Active Documents -->
                     <div class="text-xs text-muted-foreground">{{ doc }}</div>
-                    <div class="w-full bg-primary/20 rounded-t" :style="{ height: (doc / 2) + 'px' }"></div>
+                    <div class="w-full bg-primary/20 rounded-t" :style="{ height: (doc * 10) + 'px' }"></div>
+                    <!-- Deleted Documents -->
+                    <div v-if="monthlyStats.deleted[index] > 0" 
+                      class="w-full bg-destructive/20 rounded-t" 
+                      :style="{ height: (monthlyStats.deleted[index] * 10) + 'px' }"
+                    ></div>
                     <div class="text-xs">{{ monthlyStats.labels[index] }}</div>
                   </div>
                 </div>
@@ -684,12 +842,12 @@ const showViewModal = ref(false)
                     multiple
                     class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     @change="handleFileUpload"
-                    accept=".pdf,.jpg,.jpeg,.png"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
                   />
                   <Upload class="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                   <p class="text-sm font-medium">Glissez vos documents ici</p>
                   <p class="text-xs text-muted-foreground mt-1">ou cliquez pour sélectionner</p>
-                  <p class="text-xs text-muted-foreground mt-1">PDF, JPG, PNG (max 10MB)</p>
+                  <p class="text-xs text-muted-foreground mt-1">PDF, JPG, PNG, WebP (max 10MB)</p>
                   
                   <div v-if="isUploading" class="mt-4">
                     <Progress :value="uploadProgress" class="h-1" />
@@ -738,7 +896,7 @@ const showViewModal = ref(false)
                       <p class="text-xs text-muted-foreground">{{ doc.timestamp }}</p>
                     </div>
                     <div class="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" @click.stop="handlePreview(doc)">
+                      <Button variant="ghost" size="sm" @click.stop="showViewModal = true; selectedDocument = doc">
                         <Eye class="h-4 w-4" />
                       </Button>
                     </div>

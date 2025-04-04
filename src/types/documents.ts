@@ -63,4 +63,40 @@ export interface DocumentSearchDto {
   dateFrom?: string | Date;
   dateTo?: string | Date;
   favoritesOnly?: boolean;
+}
+
+export interface DashboardDataDto {
+  // Basic Statistics
+  totalDocuments: number
+  processedDocuments: number
+  processingSuccessRate: number
+  totalStorageUsed: number
+
+  // Document Status Statistics
+  documentsByStatus: Record<string, number>
+  
+  // Language Statistics
+  documentsByLanguage: Record<string, number>
+  
+  // Recent Documents
+  recentDocuments: BackendDocumentDto[]
+  
+  // Recent Activity
+  recentActivity: Array<{
+    id: string
+    userId: string
+    action: string
+    timestamp: string
+  }>
+  
+  // Processing Statistics
+  documentsInProcessing: number
+  failedDocuments: number
+  averageProcessingTime: number
+}
+
+export interface DashboardResponse {
+  success: boolean
+  message: string
+  data: DashboardDataDto
 } 

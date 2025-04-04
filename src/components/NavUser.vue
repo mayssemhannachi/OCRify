@@ -54,6 +54,7 @@ import {
   Trash2,
   Eye,
   EyeOff,
+  X,
 } from 'lucide-vue-next'
 import {
   Popover,
@@ -111,7 +112,7 @@ const handleAvatarError = (e: Event) => {
   }
 }
 
-// Update the avatar options to use DiceBear Croodles API
+// Update the avatar options to remove backgrounds
 const avatarOptions = [
   { id: 1, url: 'https://api.dicebear.com/9.x/croodles/svg?seed=avatar1' },
   { id: 2, url: 'https://api.dicebear.com/9.x/croodles/svg?seed=avatar2' },
@@ -323,6 +324,25 @@ onMounted(() => {
   loadUserProfile()
 })
 
+// Add new refs for avatar selection feedback
+const avatarSuccess = ref(false)
+const avatarSuccessMessage = ref('')
+const showAvatarPreview = ref(false)
+const tempSelectedAvatar = ref('')
+
+// Update the selectAvatar function
+const selectAvatar = (avatarUrl: string) => {
+  tempSelectedAvatar.value = avatarUrl
+  showAvatarPreview.value = true
+  avatarSuccess.value = true
+  avatarSuccessMessage.value = 'Avatar sélectionné avec succès'
+  
+  // Reset success message after 3 seconds
+  setTimeout(() => {
+    avatarSuccess.value = false
+  }, 3000)
+}
+
 // Update the handleAvatarUpload function
 const handleAvatarUpload = (event: Event) => {
   const input = event.target as HTMLInputElement
@@ -347,8 +367,16 @@ const handleAvatarUpload = (event: Event) => {
         const base64String = e.target.result as string
         // Validate base64 string
         if (base64String.startsWith('data:image/')) {
-          profileForm.value.selectedAvatar = base64String // Use selectedAvatar instead of avatar
+          tempSelectedAvatar.value = base64String
+          showAvatarPreview.value = true
+          avatarSuccess.value = true
+          avatarSuccessMessage.value = 'Image importée avec succès'
           profileError.value = ''
+          
+          // Reset success message after 3 seconds
+          setTimeout(() => {
+            avatarSuccess.value = false
+          }, 3000)
         } else {
           profileError.value = 'Format d\'image invalide'
         }
@@ -361,11 +389,41 @@ const handleAvatarUpload = (event: Event) => {
   }
 }
 
-// Update the selectAvatar function
-const selectAvatar = (avatarUrl: string) => {
-  profileForm.value.selectedAvatar = avatarUrl
-  // Store the selected avatar in localStorage
-  localStorage.setItem('userAvatar', avatarUrl)
+// Update the applyAvatarChanges function
+const applyAvatarChanges = () => {
+  if (tempSelectedAvatar.value) {
+    // Store the selected avatar in localStorage
+    localStorage.setItem('userAvatar', tempSelectedAvatar.value)
+    
+    // Update the form's selected avatar
+    profileForm.value.selectedAvatar = tempSelectedAvatar.value
+    
+    // Update the user store's avatar
+    if (userStore.userData) {
+      userStore.userData = {
+        ...userStore.userData,
+        avatar: tempSelectedAvatar.value
+      }
+    }
+    
+    // Reset the preview state
+    showAvatarPreview.value = false
+    
+    // Show success message
+    avatarSuccess.value = true
+    avatarSuccessMessage.value = 'Avatar mis à jour avec succès'
+    
+    // Reset success message after 3 seconds
+    setTimeout(() => {
+      avatarSuccess.value = false
+    }, 3000)
+  }
+}
+
+// Update the cancelAvatarChanges function
+const cancelAvatarChanges = () => {
+  tempSelectedAvatar.value = ''
+  showAvatarPreview.value = false
 }
 
 // Update the removeAvatar function
@@ -373,8 +431,15 @@ const removeAvatar = () => {
   // Generate a new random avatar using DiceBear
   const randomSeed = Math.random().toString(36).substring(7)
   const newAvatarUrl = `https://api.dicebear.com/9.x/croodles/svg?seed=${randomSeed}`
-  profileForm.value.selectedAvatar = newAvatarUrl
-  localStorage.setItem('userAvatar', newAvatarUrl)
+  tempSelectedAvatar.value = newAvatarUrl
+  showAvatarPreview.value = true
+  avatarSuccess.value = true
+  avatarSuccessMessage.value = 'Avatar supprimé avec succès'
+  
+  // Reset success message after 3 seconds
+  setTimeout(() => {
+    avatarSuccess.value = false
+  }, 3000)
 }
 
 const handleLogout = async () => {
@@ -465,7 +530,7 @@ onBeforeUnmount(() => {
               <div class="flex items-center gap-4">
                 <Avatar class="h-20 w-20 rounded-full overflow-hidden">
                   <AvatarImage 
-                    :src="currentAvatar" 
+                    :src="showAvatarPreview ? tempSelectedAvatar : currentAvatar" 
                     :alt="profileForm.firstName + ' ' + profileForm.lastName"
                     @error="handleAvatarError"
                     :class="{ 'opacity-0': isAvatarLoading }"
@@ -496,6 +561,7 @@ onBeforeUnmount(() => {
                                 variant="ghost"
                                 size="sm"
                                 class="p-0 h-12 w-12 hover:bg-transparent"
+                                :class="{ 'ring-2 ring-primary ring-offset-2': tempSelectedAvatar === avatar.url }"
                                 @click="selectAvatar(avatar.url)"
                               >
                                 <Avatar class="h-full w-full rounded-full overflow-hidden">
@@ -504,8 +570,30 @@ onBeforeUnmount(() => {
                                 </Avatar>
                               </Button>
                             </div>
+                            
+                            <!-- Avatar preview actions -->
+                            <div v-if="showAvatarPreview" class="flex items-center gap-2 mt-2">
+                              <Button type="button" variant="outline" size="sm" @click="applyAvatarChanges" class="flex-1">
+                                <Save class="h-4 w-4 mr-2" />
+                                Appliquer
+                              </Button>
+                              <Button type="button" variant="outline" size="sm" @click="cancelAvatarChanges" class="flex-1">
+                                <X class="h-4 w-4 mr-2" />
+                                Annuler
+                              </Button>
+                            </div>
+                            
+                            <!-- Avatar success message -->
+                            <div v-if="avatarSuccess" class="flex items-center gap-2 text-sm text-green-600 animate-fade-in mt-2">
+                              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                              </svg>
+                              {{ avatarSuccessMessage }}
+                            </div>
                           </div>
+                          
                           <Separator />
+                          
                           <div class="space-y-2">
                             <h4 class="font-medium text-sm">Importer une image</h4>
                             <div class="flex items-center">
