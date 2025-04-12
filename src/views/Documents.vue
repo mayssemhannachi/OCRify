@@ -1,35 +1,44 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useToast } from '@/components/ui/toast/use-toast'
 import {
-  Search,
   FileText,
+  Image as ImageIcon,
+  Download,
+  Star,
+  Eye,
+  Text,
+  Search,
   Filter,
   Calendar,
-  FileType2,
-  Download,
-  Eye,
+  Languages,
+  X,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  RotateCcw,
+  RefreshCw,
+  Copy,
+  FileDown,
+  FileText as FileTextIcon,
+  Loader2,
+  Percent,
+  Clock,
+  Scan,
+  SortAsc,
   Trash2,
+  ChevronDown,
   Grid2x2,
   List,
-  SortAsc,
-  Clock,
-  Languages,
-  Percent,
-  ChevronDown,
-  X,
-  Plus,
-  ChevronUp,
-  Star,
   Upload,
-  Image as ImageIcon,
-  Loader2,
-  CheckCircle2,
-  XCircle,
+  FileType2,
+  Plus,
+  ChevronUp
 } from 'lucide-vue-next'
 import Button from '@/components/ui/button/Button.vue'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardFooter } from '@/components/ui/card'
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -44,6 +53,7 @@ import {
 } from '@/components/ui/sidebar'
 import SidebarLeft from '@/components/SidebarLeft.vue'
 import FileUpload from '@/components/ui/file-upload/FileUpload.vue'
+import RichTextEditor from '@/components/RichTextEditor.vue'
 import {
   Dialog,
   DialogContent,
@@ -51,16 +61,83 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { documents as documentsService } from '@/services/api'
+import { documents as documentsService, ocr } from '@/services/api'
 import type { DocumentDto, BackendDocumentDto, DocumentSearchDto } from '@/types/documents'
-import { useToast } from '@/components/ui/toast/use-toast'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectGroup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Label,
+} from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Checkbox,
+} from '@/components/ui/checkbox'
+import {
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Progress } from '@/components/ui/progress'
+import Delta from 'quill-delta'
+import OCRPanel from '@/components/OCRPanel.vue'
+
+// Add these interfaces
+interface OcrSuggestion {
+  word: string;
+  suggestions: string[];
+  confidence: number;
+  start: number;
+  end: number;
+}
+
+interface OcrResponse {
+  success: boolean;
+  message: string;
+  data: {
+    text: string | { ops: Array<{ insert: string }> };
+  confidence: number;
+  processingTime: number;
+    suggestions?: OcrSuggestion[];
+  };
+}
+
+interface OcrService {
+  process: (documentId: string) => Promise<{ data: OcrResponse }>;
+  // ... existing code ...
+}
+
+// Add this sample OCR data near the top of the script section, after the interfaces
+const sampleOcrResponse = {
+  text: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.",
+  suggestions: [
+    {
+      word: "ipsum",
+      suggestions: ["ipsum", "ipsom", "ipsem"],
+      confidence: 0.85,
+      start: 6,
+      end: 11
+    },
+    {
+      word: "consectetur",
+      suggestions: ["consectetur", "consectur", "consecture"],
+      confidence: 0.75,
+      start: 23,
+      end: 34
+    }
+  ],
+  confidence: 0.92,
+  processingTime: 1.5
+};
 
 const route = useRoute()
 const { toast } = useToast()
-const searchQuery = ref('')
 const showFilters = ref(false)
 const showExpandedFilters = ref(false)
-const selectedType = ref('all')
+const selectedType = ref<string>('all')
 const selectedStatus = ref('all')
 const selectedLanguage = ref('all')
 const dateRange = ref({
@@ -69,10 +146,54 @@ const dateRange = ref({
 })
 const viewMode = ref<'grid' | 'list'>('grid')
 const sortBy = ref('date')
+const sortOrder = ref<'asc' | 'desc'>('desc')
+const searchTerm = ref('')
+
+// Add language mapping constants at the top
+const languageMap = {
+  'fra': 1,  // French
+  'eng': 0,  // English
+  'english': 0,  // English (alternative format)
+  'ara': 2   // Arabic
+} as const;
+
+const reverseLanguageMap = {
+  0: 'eng',  // English
+  1: 'fra',  // French
+  2: 'ara'   // Arabic
+} as const;
+
+const languageDisplayMap = {
+  'fra': 'FRA',  // French
+  'eng': 'ENG',  // English
+  'english': 'ENG',  // English (alternative format)
+  'ara': 'ARA'   // Arabic
+} as const;
+
+const languageDisplayNameMap = {
+  'fra': 'Français',  // French
+  'eng': 'English',   // English
+  'english': 'English',   // English (alternative format)
+  'ara': 'العربية'    // Arabic
+} as const;
+
+const reverseLanguageDisplayNameMap = {
+  'Français': 'fra',
+  'English': 'eng',
+  'العربية': 'ara'
+} as const;
 
 // Use the DocumentDto type from the API
 type Document = DocumentDto & {
-  documentUrl: string
+  documentUrl: string;
+  ocrText?: string;
+  ocrSuggestions?: Array<{
+    word: string;
+    suggestions: string[];
+    start: number;
+    end: number;
+    confidence: number;
+  }>;
 }
 
 const documents = ref<Document[]>([])
@@ -81,6 +202,44 @@ const currentPage = ref(1)
 const pageSize = ref(19) // Changed from 3 to 19 to show all documents
 const totalDocuments = ref(0)
 const selectedFavorites = ref(false)
+
+// Add computed property for sorted documents
+const sortedDocuments = computed(() => {
+  const docs = [...documents.value]
+  
+  switch (sortBy.value) {
+    case 'date':
+      return docs.sort((a, b) => {
+        const dateA = new Date(a.createdAt).getTime()
+        const dateB = new Date(b.createdAt).getTime()
+        return sortOrder.value === 'asc' ? dateA - dateB : dateB - dateA
+      })
+    case 'name':
+      return docs.sort((a, b) => {
+        const nameA = a.name.toLowerCase()
+        const nameB = b.name.toLowerCase()
+        return sortOrder.value === 'asc' 
+          ? nameA.localeCompare(nameB)
+          : nameB.localeCompare(nameA)
+      })
+    case 'size':
+      return docs.sort((a, b) => {
+        return sortOrder.value === 'asc' 
+          ? a.size - b.size
+          : b.size - a.size
+      })
+    case 'accuracy':
+      return docs.sort((a, b) => {
+        const accuracyA = a.accuracy || 0
+        const accuracyB = b.accuracy || 0
+        return sortOrder.value === 'asc'
+          ? accuracyA - accuracyB
+          : accuracyB - accuracyA
+      })
+    default:
+      return docs
+  }
+})
 
 // Add new helper function for date formatting
 const formatDate = (dateString: string): string => {
@@ -115,103 +274,211 @@ const getFileUrl = (path: string, docId: string): string => {
   return `${import.meta.env.VITE_API_URL}/api/Documents/${docId}/download`
 }
 
+// Add these constants for document type enum values
+const DocumentType = {
+  All: 0,
+  PDF: 1,
+  Image: 2
+};
+
+// Add a watcher for the selectedType to log changes
+watch(selectedType, (newValue, oldValue) => {
+  console.log('🔍 [Filter] Document type changed:', { 
+    from: oldValue, 
+    to: newValue,
+    enumValue: newValue === 'pdf' ? DocumentType.PDF : newValue === 'image' ? DocumentType.Image : DocumentType.All
+  });
+  fetchDocuments();
+});
+
+// Add a watcher for dateRange changes
+watch(dateRange, (newValue) => {
+  console.log('🔍 [Filter] Date range changed:', { 
+    from: newValue.start, 
+    to: newValue.end 
+  });
+  fetchDocuments();
+}, { deep: true });
+
+// Add a watcher for selectedFavorites
+watch(selectedFavorites, (newValue) => {
+  console.log('🔍 [Filter] Favorites filter changed:', { 
+    from: !newValue, 
+    to: newValue 
+  });
+  fetchDocuments();
+});
+
+// Add a watcher for selectedStatus to log changes
+watch(selectedStatus, (newValue, oldValue) => {
+  console.log('🔍 [Filter] Status changed:', { 
+    from: oldValue, 
+    to: newValue,
+    timestamp: new Date().toISOString()
+  });
+  fetchDocuments();
+});
+
+// Add watcher for selectedLanguage
+watch(selectedLanguage, (newValue, oldValue) => {
+  console.log('🔍 [Language Filter] Language changed:', { 
+    from: oldValue, 
+    to: newValue,
+    mapping: languageMap[newValue as keyof typeof languageMap]
+  });
+  fetchDocuments();
+});
+
+// Add watcher for sort changes
+watch([sortBy, sortOrder], ([newSortBy, newSortOrder]) => {
+  console.log('🔍 [Sort] Sorting changed:', { 
+    by: newSortBy, 
+    order: newSortOrder 
+  });
+  fetchDocuments();
+});
+
 // Update the fetchDocuments function
 const fetchDocuments = async () => {
   try {
-    console.log('Starting document fetch...');
-    console.log('Current status:', selectedStatus.value);
-    console.log('Type of selectedStatus:', typeof selectedStatus.value);
+    console.log('🔍 [API] Starting document fetch...');
+    console.log('🔍 [API] Selected language:', selectedLanguage.value);
+    
     isLoading.value = true;
     
-    // Always include these parameters
+    // Initialize search parameters
     const searchParams: DocumentSearchDto = {
+      searchTerm: searchTerm.value,
       page: currentPage.value,
       pageSize: pageSize.value,
-      includeDeleted: selectedStatus.value === 'Deleted', // Explicitly set based on status
-      // Only set status if it's not 'all' and not 'Deleted'
-      ...(selectedStatus.value !== 'all' && selectedStatus.value !== 'Deleted' && {
-        status: selectedStatus.value === 'Complete' ? 4 : selectedStatus.value === 'Uploaded' ? 0 : undefined
-      })
+      includeDeletedNum: selectedStatus.value === 'Deleted' ? 1 : 0,
+      status: selectedStatus.value !== 'all' ? selectedStatus.value : undefined
     };
 
-    // Add optional filters only if they are set
-    if (searchQuery.value.trim()) {
-      searchParams.searchTerm = searchQuery.value.trim();
+    // Add language filter if not 'all'
+    if (selectedLanguage.value !== 'all') {
+      const languageCode = languageMap[selectedLanguage.value as keyof typeof languageMap];
+      if (languageCode !== undefined) {
+        searchParams.language = String(languageCode);
+        console.log('🔍 [API] Setting language filter:', {
+          selectedLanguage: selectedLanguage.value,
+          mappedValue: languageCode
+        });
+      }
+    } else {
+      console.log('🔍 [API] No language filter applied (all languages)');
     }
+
+    // Add type filter if not 'all'
     if (selectedType.value !== 'all') {
       searchParams.type = selectedType.value;
+      console.log('🔍 [API] Setting type filter:', selectedType.value);
+    } else {
+      console.log('🔍 [API] No document type filter applied (all types)');
     }
-    if (selectedLanguage.value !== 'all') {
-      searchParams.language = selectedLanguage.value;
-    }
+
+    // Add date range filter if dates are selected
     if (dateRange.value.start && dateRange.value.end) {
-      searchParams.dateFrom = new Date(dateRange.value.start);
-      searchParams.dateTo = new Date(dateRange.value.end);
+      const startDate = new Date(dateRange.value.start);
+      const endDate = new Date(dateRange.value.end);
+      endDate.setHours(23, 59, 59, 999);
+      
+      searchParams.dateFrom = startDate.toISOString();
+      searchParams.dateTo = endDate.toISOString();
+      
+      console.log('🔍 [API] Setting date range filter:', {
+        from: searchParams.dateFrom,
+        to: searchParams.dateTo
+      });
     }
+
+    // Add favorites filter
     if (selectedFavorites.value) {
       searchParams.favoritesOnly = true;
+      console.log('🔍 [API] Setting favorites filter:', true);
     }
 
-    // Log the exact parameters being sent
-    console.log('Making API request with params:', {
-      ...searchParams,
-      dateFrom: searchParams.dateFrom instanceof Date ? searchParams.dateFrom.toISOString() : searchParams.dateFrom,
-      dateTo: searchParams.dateTo instanceof Date ? searchParams.dateTo.toISOString() : searchParams.dateTo,
-      includeDeleted: searchParams.includeDeleted
-    });
+    console.log('🔍 [API] Final search parameters:', searchParams);
 
     const response = await documentsService.getAll(searchParams);
-    console.log('API response received:', response);
+    console.log('✅ [API] API response received:', response);
 
     if (response.success && response.data) {
-      console.log('Processing response data:', {
+      console.log('✅ [API] Processing response data:', {
         totalCount: response.data.totalCount,
         itemsCount: response.data.items.length
       });
       
-      documents.value = response.data.items.map((doc: BackendDocumentDto) => ({
-        id: doc.id,
-        name: doc.fileName,
-        path: doc.filePath,
-        size: doc.fileSize,
-        type: doc.fileType,
-        status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : 'Deleted',
-        language: doc.language,
-        topic: doc.topic,
-        description: doc.description,
-        tags: doc.tags,
-        isFavorite: doc.isFavorite,
-        createdAt: doc.uploadDate,
-        updatedAt: doc.lastModified || doc.uploadDate,
-        accuracy: doc.accuracy,
-        documentUrl: getFileUrl(doc.filePath, doc.id),
-        isDeleted: doc.isDeleted
-      }));
+      documents.value = response.data.items.map((doc: BackendDocumentDto) => {
+        // Convert backend language string to frontend language code
+        let languageCode = 'eng'; // Default to English
+        
+        if (doc.language === 'arabic' || doc.language === '2') {
+          languageCode = 'ara';
+        } else if (doc.language === 'french' || doc.language === '1') {
+          languageCode = 'fra';
+        } else if (doc.language === 'english' || doc.language === '0') {
+          languageCode = 'eng';
+        }
+
+        return {
+          id: doc.id,
+          name: doc.fileName,
+          path: doc.filePath,
+          size: doc.fileSize,
+          type: doc.fileType,
+          status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : doc.status === 5 ? 'Deleted' : 'Uploaded',
+          language: languageCode,
+          topic: doc.topic,
+          description: doc.description,
+          tags: doc.tags || [],
+          isFavorite: doc.isFavorite,
+          createdAt: doc.uploadDate,
+          updatedAt: doc.lastModified || doc.uploadDate,
+          accuracy: doc.accuracy,
+          documentUrl: '', // Initialize with empty string
+          isDeleted: doc.isDeleted || doc.status === 5
+        };
+      });
       totalDocuments.value = response.data.totalCount;
-      console.log('Documents processed and updated:', {
+      console.log('✅ [API] Documents processed and updated:', {
         documentsCount: documents.value.length,
         totalCount: totalDocuments.value
       });
     } else {
-      console.error('Invalid response format:', response);
-      documents.value = [];
-      totalDocuments.value = 0;
+      console.error('❌ [API] Invalid response format:', response);
+      // Don't clear documents on invalid response
+      toast({
+        title: 'Erreur de recherche',
+        description: 'Impossible de récupérer les documents. Les résultats actuels sont conservés.',
+        variant: 'destructive'
+      });
     }
   } catch (error) {
-    console.error('Failed to fetch documents:', error);
-    documents.value = [];
-    totalDocuments.value = 0;
+    console.error('❌ [API] Failed to fetch documents:', error);
+    // Don't clear documents on error
+    toast({
+      title: 'Erreur de recherche',
+      description: 'Une erreur est survenue lors de la recherche. Les résultats actuels sont conservés.',
+      variant: 'destructive'
+    });
   } finally {
     isLoading.value = false;
-    console.log('Document fetch completed');
+    console.log('✅ [API] Document fetch completed');
   }
 };
 
 // Call fetchDocuments when component mounts
 onMounted(() => {
-  console.log('Component mounted, initial status:', selectedStatus.value);
-  console.log('Type of initial status:', typeof selectedStatus.value);
-  fetchDocuments();
+  // Load saved language from localStorage
+  const savedLanguage = localStorage.getItem('selectedLanguage')
+  if (savedLanguage) {
+    selectedLanguage.value = savedLanguage
+    console.log('🔍 [Language] Loaded saved language:', savedLanguage)
+  }
+  console.log('Component mounted, initial status:', selectedStatus.value)
+  console.log('Type of initial status:', typeof selectedStatus.value)
+  fetchDocuments()
 })
 
 // Add watcher for selectedStatus
@@ -227,67 +494,6 @@ const dragOver = ref(false)
 const isUploading = ref(false)
 const uploadProgress = ref(0)
 const uploadingFiles = ref<{ name: string; progress: number; status: 'uploading' | 'complete' | 'error' }[]>([])
-
-const sortedAndFilteredDocuments = computed(() => {
-  console.log('Filtering documents with status:', selectedStatus.value);
-  const filtered = documents.value
-    .filter(doc => {
-      const matchesSearch = doc.name?.toLowerCase().includes(searchQuery.value.toLowerCase())
-      const matchesType = selectedType.value === 'all' || doc.type === selectedType.value
-      const matchesLanguage = selectedLanguage.value === 'all' || doc.language === selectedLanguage.value
-      const matchesFavorites = !selectedFavorites.value || doc.isFavorite
-      
-      let matchesDate = true
-      if (dateRange.value.start && dateRange.value.end) {
-        const docDate = new Date(doc.createdAt)
-        const start = new Date(dateRange.value.start)
-        const end = new Date(dateRange.value.end)
-        matchesDate = docDate >= start && docDate <= end
-      }
-      
-      // Check if document is deleted using IsDeleted property
-      const isDeleted = doc.isDeleted
-      console.log('Document filtering:', {
-        docId: doc.id,
-        docName: doc.name,
-        isDeleted,
-        selectedStatus: selectedStatus.value,
-        matchesSearch,
-        matchesType,
-        matchesLanguage,
-        matchesDate,
-        matchesFavorites
-      });
-      
-      // Show deleted documents only when status filter is 'Deleted'
-      if (selectedStatus.value === 'Deleted') {
-        return matchesSearch && matchesType && matchesLanguage && matchesDate && matchesFavorites && isDeleted
-      }
-      
-      // Show non-deleted documents when status filter is not 'Deleted'
-      if (selectedStatus.value === 'all') {
-        return matchesSearch && matchesType && matchesLanguage && matchesDate && matchesFavorites && !isDeleted
-      }
-      
-      // For other status filters, show only matching non-deleted documents
-      return matchesSearch && matchesType && matchesLanguage && matchesDate && matchesFavorites && !isDeleted && doc.status === selectedStatus.value
-    })
-    .sort((a, b) => {
-      if (sortBy.value === 'date') {
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      } else if (sortBy.value === 'name') {
-        return a.name.localeCompare(b.name)
-      } else if (sortBy.value === 'size') {
-        return b.size - a.size
-      } else if (sortBy.value === 'confidence') {
-        return (b.accuracy || 0) - (a.accuracy || 0)
-      }
-      return 0
-    })
-  
-  console.log('Filtered documents count:', filtered.length);
-  return filtered;
-})
 
 const showViewModal = ref(false)
 const selectedDocument = ref<Document | null>(null)
@@ -311,114 +517,162 @@ const handleImageError = (event: Event) => {
   }
 }
 
-// Update the handleView function
+// Add these new functions in the script section
+const originalMetadata = ref<{
+  name: string;
+  topic: string;
+  description: string;
+  tags: string[];
+} | null>(null);
+
+// Update the handleView function to store original metadata
 const handleView = async (docId: string) => {
   try {
+    console.log('🔍 [handleView] Attempting to view document:', docId)
     const response = await documentsService.getById(docId)
-    if (response.data?.success && response.data.data) {
-      const doc = response.data.data
-      
-      // Get the file content using the authenticated endpoint
-      try {
-        // For images, fetch the blob and create a URL
-        if (doc.fileType?.toLowerCase().includes('image')) {
-          const fileResponse = await documentsService.getFile(docId)
-          const blob = new Blob([fileResponse.data], { type: doc.fileType })
-          const imageUrl = URL.createObjectURL(blob)
-          
-      selectedDocument.value = {
-            id: doc.id,
-            name: doc.fileName,
-            path: doc.filePath,
-            size: doc.fileSize,
-            type: doc.fileType,
-            status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : 'Deleted',
-            language: doc.language,
-            topic: doc.topic,
-            description: doc.description,
-            tags: doc.tags,
-            isFavorite: doc.isFavorite,
-            createdAt: doc.uploadDate,
-            updatedAt: doc.lastModified || doc.uploadDate,
-            accuracy: doc.accuracy,
-            documentUrl: imageUrl,
-            isDeleted: doc.isDeleted
-      }
-      showViewModal.value = true
-          errorToastShown.value = false // Reset error toast flag
-          return
-        }
-
-        // For other file types, fetch the content
-        const fileResponse = await documentsService.getFile(docId)
-        if (fileResponse.data) {
-          const blob = new Blob([fileResponse.data], { type: doc.fileType })
-          selectedDocument.value = {
-            id: doc.id,
-            name: doc.fileName,
-            path: doc.filePath,
-            size: doc.fileSize,
-            type: doc.fileType,
-            status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : 'Deleted',
-            language: doc.language,
-            topic: doc.topic,
-            description: doc.description,
-            tags: doc.tags,
-            isFavorite: doc.isFavorite,
-            createdAt: doc.uploadDate,
-            updatedAt: doc.lastModified || doc.uploadDate,
-            accuracy: doc.accuracy,
-            documentUrl: URL.createObjectURL(blob),
-            isDeleted: doc.isDeleted
-          }
-          showViewModal.value = true
-          }
-        } catch (error) {
-        console.error('Error fetching file content:', error)
-        // Show error toast and still open the panel with placeholder
-        selectedDocument.value = {
-          id: doc.id,
-          name: doc.fileName,
-          path: doc.filePath,
-          size: doc.fileSize,
-          type: doc.fileType,
-          status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : 'Deleted',
-          language: doc.language,
-          topic: doc.topic,
-          description: doc.description,
-          tags: doc.tags,
-          isFavorite: doc.isFavorite,
-          createdAt: doc.uploadDate,
-          updatedAt: doc.lastModified || doc.uploadDate,
-          accuracy: doc.accuracy,
-          documentUrl: '', // Empty URL for placeholder
-          isDeleted: doc.isDeleted
-        }
-        showViewModal.value = true
-        toast({
-          title: 'Erreur de chargement',
-          description: 'Impossible de charger le contenu du document.',
-          variant: 'destructive'
-        })
-      }
+    console.log('✅ [handleView] Document details fetched:', response.data)
+    
+    if (!response.data?.success || !response.data.data) {
+      throw new Error('Invalid response format')
     }
+
+    const doc = response.data.data
+    let documentUrl = ''
+
+    try {
+      console.log('🔍 [handleView] Fetching file content for document type:', doc.fileType)
+      const fileResponse = await documentsService.getFile(docId)
+      console.log('✅ [handleView] File response received:', fileResponse)
+      
+      if (!fileResponse.data) {
+        throw new Error('No data received from file response')
+      }
+      
+      const blob = new Blob([fileResponse.data], { type: doc.fileType })
+      documentUrl = URL.createObjectURL(blob)
+      console.log('✅ [handleView] File URL created:', documentUrl)
+    } catch (error) {
+      console.error('❌ [handleView] Error fetching file content:', error)
+      toast({
+        title: 'Erreur de chargement',
+        description: 'Impossible de charger le contenu du document. Vérifiez votre connexion et votre authentification.',
+        variant: 'destructive'
+      })
+    }
+
+    // Map the language from backend number to frontend code
+    let languageCode = 'eng' // Default to English
+    if (doc.language === 0 || doc.language === '0' || doc.language === 'english') {
+      languageCode = 'eng'
+    } else if (doc.language === 1 || doc.language === '1' || doc.language === 'french') {
+      languageCode = 'fra'
+    } else if (doc.language === 2 || doc.language === '2' || doc.language === 'arabic') {
+      languageCode = 'ara'
+    }
+
+    // Create the document object with default values
+    const documentData = {
+      id: doc.id,
+      name: doc.fileName || '',
+      path: doc.filePath || '',
+      size: doc.fileSize,
+      type: doc.fileType,
+      status: doc.status === 4 ? 'Complete' : doc.status === 0 ? 'Uploaded' : doc.status === 5 ? 'Deleted' : 'Uploaded',
+      language: languageCode,
+      topic: doc.topic || '',
+      description: doc.description || '',
+      tags: doc.tags || [],
+      isFavorite: doc.isFavorite,
+      createdAt: doc.uploadDate,
+      updatedAt: doc.lastModified || doc.uploadDate,
+      accuracy: doc.accuracy,
+      documentUrl, // Set the URL here
+      isDeleted: doc.isDeleted || doc.status === 5
+    }
+
+    // Store original metadata
+    originalMetadata.value = {
+      name: documentData.name,
+      topic: documentData.topic,
+      description: documentData.description,
+      tags: [...documentData.tags]
+    };
+
+    // Update state in a single batch
+    selectedDocument.value = documentData
+    showViewModal.value = true
+    errorToastShown.value = false
+
   } catch (error) {
-    console.error('Error fetching document details:', error)
+    console.error('❌ [handleView] Error fetching document details:', error)
     toast({
       title: 'Erreur',
-      description: 'Impossible de charger les détails du document.',
+      description: 'Impossible de charger les détails du document. Vérifiez votre connexion et votre authentification.',
       variant: 'destructive'
     })
   }
 }
 
-// Update the closeViewModal function to revoke the blob URL
+// Add new function to save metadata changes
+const saveMetadataChanges = async () => {
+  if (!selectedDocument.value || !originalMetadata.value) return;
+  
+  try {
+    await handleMetadataUpdate(selectedDocument.value.id, {
+      language: selectedDocument.value.language || '',
+      topic: selectedDocument.value.topic || '',
+      description: selectedDocument.value.description || '',
+      tags: selectedDocument.value.tags || []
+    });
+    
+    // Update original metadata after successful save
+    originalMetadata.value = {
+      name: selectedDocument.value.name,
+      topic: selectedDocument.value.topic || '',
+      description: selectedDocument.value.description || '',
+      tags: [...selectedDocument.value.tags]
+    };
+    
+    toast({
+      title: 'Succès',
+      description: 'Les modifications ont été enregistrées avec succès.',
+    });
+  } catch (error) {
+    console.error('Error saving metadata changes:', error);
+    toast({
+      title: 'Erreur',
+      description: 'Impossible d\'enregistrer les modifications.',
+      variant: 'destructive',
+    });
+  }
+};
+
+// Add new function to reset metadata changes
+const resetMetadataChanges = () => {
+  if (!selectedDocument.value || !originalMetadata.value) return;
+  
+  selectedDocument.value = {
+    ...selectedDocument.value,
+    name: originalMetadata.value.name,
+    topic: originalMetadata.value.topic,
+    description: originalMetadata.value.description,
+    tags: [...originalMetadata.value.tags]
+  };
+  
+  toast({
+    title: 'Modifications annulées',
+    description: 'Les modifications ont été annulées.',
+  });
+};
+
+// Update the closeViewModal function to clear original metadata
 const closeViewModal = () => {
   if (selectedDocument.value?.documentUrl && selectedDocument.value.documentUrl.startsWith('blob:')) {
     URL.revokeObjectURL(selectedDocument.value.documentUrl)
   }
   showViewModal.value = false
   selectedDocument.value = null
+  originalMetadata.value = null
   errorToastShown.value = false
 }
 
@@ -437,13 +691,13 @@ const handleDownload = async (docId: string) => {
         // Create a URL for the blob
         const url = window.URL.createObjectURL(blob)
         // Create a temporary link element
-        const link = document.createElement('a')
+      const link = document.createElement('a')
         link.href = url
-        link.download = doc.fileName
+      link.download = doc.fileName
         // Append to body, click, and remove
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
         // Clean up the URL
         window.URL.revokeObjectURL(url)
       }
@@ -462,6 +716,36 @@ const handleDownload = async (docId: string) => {
 const showDeleteConfirmation = ref(false)
 const documentToDelete = ref<string | null>(null)
 const showBulkDeleteConfirmation = ref(false)
+const newTag = ref('')
+
+// Add tag management functions
+const addTag = () => {
+  if (!selectedDocument.value || !newTag.value.trim()) return
+  if (!selectedDocument.value.tags) {
+    selectedDocument.value.tags = []
+  }
+  if (!selectedDocument.value.tags.includes(newTag.value.trim())) {
+    selectedDocument.value.tags.push(newTag.value.trim())
+    handleMetadataUpdate(selectedDocument.value.id, {
+      language: selectedDocument.value.language || '',
+      topic: selectedDocument.value.topic || '',
+      description: selectedDocument.value.description || '',
+      tags: selectedDocument.value.tags
+    })
+  }
+  newTag.value = ''
+}
+
+const removeTag = (index: number) => {
+  if (!selectedDocument.value || !selectedDocument.value.tags) return
+  selectedDocument.value.tags.splice(index, 1)
+  handleMetadataUpdate(selectedDocument.value.id, {
+    language: selectedDocument.value.language || '',
+    topic: selectedDocument.value.topic || '',
+    description: selectedDocument.value.description || '',
+    tags: selectedDocument.value.tags
+  })
+}
 
 // Update the handleDelete function
 const handleDelete = async (docId: string) => {
@@ -635,7 +919,7 @@ const confirmBulkPermanentDelete = async () => {
         title: 'Documents supprimés définitivement',
         description: `${selectedDocuments.value.length} document(s) ont été supprimé(s) définitivement.`,
       })
-      selectedDocuments.value = []
+    selectedDocuments.value = []
       isBulkMode.value = false
       await fetchDocuments()
     } else {
@@ -691,7 +975,7 @@ const activeFilters = computed(() => {
   if (selectedLanguage.value !== 'all') {
     filters.push({ 
       type: 'language', 
-      value: selectedLanguage.value === 'fr' ? 'Français' : selectedLanguage.value === 'en' || selectedLanguage.value === 'english' ? 'Anglais' : 'Arabe'
+      value: languageDisplayNameMap[selectedLanguage.value as keyof typeof languageDisplayNameMap] || 'Unknown'
     })
   }
   return filters
@@ -801,7 +1085,7 @@ const handleMetadataSubmit = async () => {
       }
       await fetchDocuments()
     } else {
-      throw new Error(response.data.message || 'Une erreur est survenue lors de l\'upload.')
+      throw new Error(response.data.message || 'Une erreur est survenue l\'upload.')
     }
   } catch (error: any) {
     console.error('Error uploading document:', error)
@@ -849,12 +1133,163 @@ const handlePageSizeChange = (size: number) => {
 
 // Add new function for select all
 const selectAllDocuments = () => {
-  if (selectedDocuments.value.length === sortedAndFilteredDocuments.value.length) {
+  if (selectedDocuments.value.length === documents.value.length) {
     selectedDocuments.value = []
   } else {
-    selectedDocuments.value = sortedAndFilteredDocuments.value.map(doc => doc.id)
+    selectedDocuments.value = documents.value.map(doc => doc.id)
   }
 }
+
+const selectedLanguageDisplay = computed(() => {
+  if (!selectedDocument.value?.language) return '';
+  return languageDisplayNameMap[selectedDocument.value.language as keyof typeof languageDisplayNameMap];
+});
+
+// Update the handleMetadataUpdate function
+const handleMetadataUpdate = async (id: string, metadata: {
+  language: string;
+  topic: string;
+  description: string;
+  tags: string[];
+  name?: string;
+}) => {
+  if (!selectedDocument.value) return;
+  
+  try {
+    // Convert language string to number
+    const languageNumber = languageMap[metadata.language as keyof typeof languageMap] ?? 0;
+    
+    // Log the request data
+    console.log('🔵 [documents.update] Updating document:', id);
+    console.log('📦 Request payload:', {
+      ...metadata,
+      language: languageNumber,
+      name: metadata.name || selectedDocument.value.name
+    });
+    
+    const response = await documentsService.update(id, {
+      ...metadata,
+      language: languageNumber,
+      name: metadata.name || selectedDocument.value.name
+    });
+    
+    if (response.data.success) {
+      console.log('✅ [documents.update] Document updated successfully:', response.data);
+      // Update the document in the list
+      const index = documents.value.findIndex(doc => doc.id === id);
+      if (index !== -1) {
+        documents.value[index] = { 
+          ...documents.value[index], 
+          ...metadata,
+          language: reverseLanguageMap[languageNumber as keyof typeof reverseLanguageMap],
+          name: metadata.name || documents.value[index].name
+        };
+      }
+      // Update the selected document
+      selectedDocument.value = { 
+        ...selectedDocument.value, 
+        ...metadata,
+        language: reverseLanguageMap[languageNumber as keyof typeof reverseLanguageMap],
+        name: metadata.name || selectedDocument.value.name
+      };
+    }
+  } catch (error) {
+    console.error('❌ [documents.update] Failed to update document metadata:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to update document metadata',
+      variant: 'destructive'
+    });
+  }
+};
+
+// Add debounced search watcher for backend search
+let searchTimeout: number | null = null;
+watch(searchTerm, (newValue) => {
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+  }
+  searchTimeout = window.setTimeout(() => {
+    console.log('Search term changed, fetching documents...');
+    currentPage.value = 1; // Reset to first page when searching
+    fetchDocuments();
+  }, 300); // Debounce for 300ms
+});
+
+// Update the language watcher to save to localStorage
+watch(selectedLanguage, (newValue, oldValue) => {
+  console.log('🔍 [Language Filter] Language changed:', { 
+    from: oldValue, 
+    to: newValue,
+    mapping: languageMap[newValue as keyof typeof languageMap]
+  })
+  // Save the selected language to localStorage
+  localStorage.setItem('selectedLanguage', newValue)
+  console.log('🔍 [Language] Saved language to localStorage:', newValue)
+  fetchDocuments()
+})
+
+// Add this after the other state variables
+const showOcrPanel = ref(false)
+
+// Add this after the other functions
+const handleOcrClick = (docId: string) => {
+  const doc = documents.value.find(d => d.id === docId)
+  if (doc) {
+    // Example OCR response
+    const exampleResponse = {
+      text: 'This is a sample OCR text result.\nIt contains multiple lines.\nAnd some formatting.',
+      confidence: 0.95,
+      language: 'English',
+      processingTime: 2.5,
+      suggestions: [
+        {
+          word: 'sample',
+          suggestions: ['sample', 'simple', 'samples'],
+          start: 8,
+          end: 14,
+          confidence: 0.85
+        },
+        {
+          word: 'formatting',
+          suggestions: ['formatting', 'format', 'formatted'],
+          start: 45,
+          end: 55,
+          confidence: 0.75
+        }
+      ]
+    }
+
+    selectedDocument.value = {
+      ...doc,
+      ocrSuggestions: exampleResponse.suggestions,
+      accuracy: exampleResponse.confidence
+    }
+    showOcrPanel.value = true
+  }
+}
+
+const handleOcrSave = async (content: string) => {
+  if (!selectedDocument.value) return
+  
+  try {
+    await documentsService.saveOcrText(selectedDocument.value.id, content)
+    selectedDocument.value.ocrText = content
+    toast({
+      title: 'Success',
+      description: 'OCR text saved successfully.',
+    })
+  } catch (error) {
+    toast({
+      title: 'Error',
+      description: 'Failed to save OCR text. Please try again.',
+      variant: 'destructive'
+    })
+  }
+}
+
+
+
 </script>
 
 <template>
@@ -883,7 +1318,7 @@ const selectAllDocuments = () => {
               <div class="relative flex-1">
                 <Search class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  v-model="searchQuery"
+                  v-model="searchTerm"
                   class="pl-8 pr-24"
                   placeholder="Rechercher des documents..."
                 />
@@ -970,6 +1405,10 @@ const selectAllDocuments = () => {
                   <select
                     v-model="selectedType"
                     class="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                    @change="() => {
+                      console.log('🔍 [UI] Document type dropdown changed to:', selectedType);
+                      console.log('🔍 [UI] Type of selectedType:', typeof selectedType);
+                    }"
                   >
                     <option value="all">Tous les types</option>
                     <option value="pdf">PDF</option>
@@ -999,8 +1438,13 @@ const selectAllDocuments = () => {
                   <Button
                     variant="outline"
                     class="w-full justify-start"
-                    :class="{ 'bg-yellow-100 border-yellow-200 dark:bg-yellow-900/30 dark:border-yellow-800': selectedFavorites }"
-                    @click="selectedFavorites = !selectedFavorites"
+                    :class="{'bg-yellow-100 border-yellow-200 dark:bg-yellow-900/30 dark:border-yellow-800': selectedFavorites}"
+                    @click="() => {
+                      console.log('🔍 [UI] Favorites button clicked, current value:', selectedFavorites);
+                      selectedFavorites = !selectedFavorites;
+                      console.log('🔍 [UI] Favorites value after toggle:', selectedFavorites);
+                      fetchDocuments();
+                    }"
                   >
                     <Star class="h-4 w-4 mr-2" :class="{ 'fill-yellow-400 text-yellow-400': selectedFavorites }" />
                     {{ selectedFavorites ? 'Tous les documents' : 'Favoris uniquement' }}
@@ -1022,7 +1466,6 @@ const selectAllDocuments = () => {
                   <option value="all">Tous les statuts</option>
                   <option value="Complete">Traité</option>
                   <option value="Uploaded">En attente</option>
-                  <option value="Deleted">Corbeille</option>
                 </select>
               </div>
 
@@ -1043,28 +1486,48 @@ const selectAllDocuments = () => {
               <div v-if="showExpandedFilters" class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
                 <div class="flex items-center gap-2">
                   <Languages class="h-4 w-4 text-muted-foreground" />
-                  <select
-                    v-model="selectedLanguage"
-                    class="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                  <Select 
+                    :model-value="selectedLanguage"
+                    @update:model-value="(value) => {
+                      console.log('🔍 [Language Filter] Previous value:', selectedLanguage);
+                      console.log('🔍 [Language Filter] New value:', value);
+                      if (!selectedLanguage) return;
+                      selectedLanguage = String(value);
+                      console.log('🔍 [Language Filter] Updated selectedLanguage:', selectedLanguage);
+                      console.log('🔍 [Language Filter] Language code mapping:', languageMap[selectedLanguage as keyof typeof languageMap]);
+                    }"
                   >
-                    <option value="all">Toutes les langues</option>
-                    <option value="fr">Français</option>
-                    <option value="en">Anglais</option>
-                    <option value="ar">Arabe</option>
-                  </select>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionnez une langue" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fra">Français</SelectItem>
+                      <SelectItem value="eng">English</SelectItem>
+                      <SelectItem value="ara">العربية</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div class="flex items-center gap-2">
                   <SortAsc class="h-4 w-4 text-muted-foreground" />
-                  <select
-                    v-model="sortBy"
-                    class="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                  >
-                    <option value="date">Date</option>
-                    <option value="name">Nom</option>
-                    <option value="size">Taille</option>
-                    <option value="confidence">Score OCR</option>
-                  </select>
+                  <div class="flex gap-2">
+                    <select
+                      v-model="sortBy"
+                      class="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                    >
+                      <option value="date">Date d'upload</option>
+                      <option value="name">Nom du fichier</option>
+                      <option value="size">Taille du fichier</option>
+                      <option value="accuracy">Score OCR</option>
+                    </select>
+                    <select
+                      v-model="sortOrder"
+                      class="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                    >
+                      <option value="desc">Décroissant</option>
+                      <option value="asc">Croissant</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1076,7 +1539,7 @@ const selectAllDocuments = () => {
           <div class="flex items-center gap-2">
             <input
               type="checkbox"
-              :checked="selectedDocuments.length === sortedAndFilteredDocuments.length"
+              :checked="selectedDocuments.length === documents.length"
               @change="selectAllDocuments"
               class="w-4 h-4 rounded border-gray-300"
             />
@@ -1115,7 +1578,7 @@ const selectAllDocuments = () => {
 
         <!-- Grid View -->
         <div v-if="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          <Card v-for="doc in sortedAndFilteredDocuments" :key="doc.id" class="overflow-hidden relative">
+          <Card v-for="doc in sortedDocuments" :key="doc.id" class="overflow-hidden relative">
             <CardContent class="p-0">
               <div class="aspect-[3/4] relative group">
                 <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2" @click.stop>
@@ -1143,11 +1606,27 @@ const selectAllDocuments = () => {
                   </div>
                   
                   <!-- Image Preview -->
-                  <div v-else-if="doc.type?.toLowerCase().includes('image')" class="w-full h-full flex flex-col items-center justify-center p-4">
-                    <div class="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center mb-2">
+                  <div v-else-if="doc.type?.toLowerCase().includes('image')" class="w-full h-full">
+                    <div class="w-full h-full flex items-center justify-center overflow-hidden rounded-lg bg-muted">
+                      <img 
+                        :src="doc.documentUrl" 
+                        :alt="doc.name"
+                        class="w-full h-full object-contain"
+                        @error="(e) => {
+                          const target = e.target as HTMLImageElement;
+                          if (target) {
+                            target.style.display = 'none';
+                            const fallback = target.nextElementSibling as HTMLElement;
+                            if (fallback) fallback.classList.remove('hidden');
+                          }
+                        }"
+                        crossorigin="use-credentials"
+                      />
+                      <!-- Fallback icon only shown on error -->
+                      <div class="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center hidden">
                       <ImageIcon class="h-8 w-8 text-blue-600 dark:text-blue-400" />
                     </div>
-                    <span class="text-xs text-muted-foreground">Image</span>
+                    </div>
                   </div>
                   
                   <!-- Default Preview -->
@@ -1171,7 +1650,7 @@ const selectAllDocuments = () => {
                 <!-- Language Badge -->
                 <div class="absolute top-2 left-2">
                   <span class="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-                    {{ (doc.language || '').toUpperCase() }}
+                    {{ languageDisplayMap[doc.language as keyof typeof languageDisplayMap] || 'ENG' }}
                   </span>
                 </div>
                 <!-- Add download and favorite icons -->
@@ -1183,6 +1662,14 @@ const selectAllDocuments = () => {
                     @click.stop="handleDownload(doc.id)"
                   >
                     <Download class="h-4 w-4 text-white" />
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    class="h-8 w-8 bg-black/60 hover:bg-black/80 group relative"
+                    @click.stop="handleOcrClick(doc.id)"
+                  >
+                    <Text class="h-4 w-4 text-white" />
                   </Button>
                   <Button
                     variant="secondary"
@@ -1239,8 +1726,8 @@ const selectAllDocuments = () => {
                     class="h-8 w-8 hover:text-red-500"
                     @click="handleDelete(doc.id)"
                   >
-                    <Trash2 class="h-4 w-4" />
-                  </Button>
+                  <Trash2 class="h-4 w-4" />
+                </Button>
                 </div>
               </div>
               <div class="w-full mt-2 space-y-1">
@@ -1251,16 +1738,6 @@ const selectAllDocuments = () => {
                 <p class="text-xs text-muted-foreground flex items-center gap-1">
                   <FileText class="h-3 w-3" />
                   {{ formatFileSize(doc.size) }}
-                </p>
-                <p class="text-xs flex items-center gap-1">
-                  <Percent class="h-3 w-3" />
-                  <span :class="getOcrConfidenceColor(doc.accuracy || 0)">
-                    Score OCR: {{ doc.accuracy || 0 }}%
-                  </span>
-                </p>
-                <p class="text-xs text-muted-foreground flex items-center gap-1">
-                  <Clock class="h-3 w-3" />
-                  Modifié le {{ formatDate(doc.updatedAt) }}
                 </p>
                 <div class="flex flex-wrap gap-1 mt-2">
                   <span v-for="tag in doc.tags" :key="tag"
@@ -1275,7 +1752,7 @@ const selectAllDocuments = () => {
 
         <!-- List View -->
         <div v-else class="space-y-2">
-          <div v-for="doc in sortedAndFilteredDocuments" :key="doc.id" 
+          <div v-for="doc in sortedDocuments" :key="doc.id" 
             class="flex items-center justify-between p-4 bg-muted rounded-lg hover:bg-muted/80 transition-colors relative">
             <!-- Selection checkbox -->
             <div v-if="isBulkMode" class="absolute left-4">
@@ -1295,8 +1772,27 @@ const selectAllDocuments = () => {
                 </div>
                 
                 <!-- Image Preview -->
-                <div v-else-if="doc.type?.toLowerCase().includes('image')" class="w-full h-full flex items-center justify-center bg-blue-100 dark:bg-blue-900/30">
-                  <ImageIcon class="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                <div v-else-if="doc.type?.toLowerCase().includes('image')" class="w-full h-full">
+                  <div class="w-full h-full flex items-center justify-center overflow-hidden">
+                    <img 
+                      :src="doc.documentUrl" 
+                      :alt="doc.name"
+                      class="w-full h-full object-contain"
+                      @error="(e) => {
+                        const target = e.target as HTMLImageElement;
+                        if (target) {
+                          target.style.display = 'none';
+                          const fallback = target.nextElementSibling as HTMLElement;
+                          if (fallback) fallback.classList.remove('hidden');
+                        }
+                      }"
+                      crossorigin="use-credentials"
+                    />
+                    <!-- Fallback icon only shown on error -->
+                    <div class="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center hidden">
+                      <ImageIcon class="h-8 w-8 text-blue-600 dark:text-blue-400" />
+                    </div>
+                  </div>
                 </div>
                 
                 <!-- Default Preview -->
@@ -1315,85 +1811,45 @@ const selectAllDocuments = () => {
                     {{ doc.status === 'Complete' ? 'Traité' : 'En attente' }}
                   </span>
                   <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-                    {{ (doc.language || '').toUpperCase() }}
+                    {{ languageDisplayMap[doc.language as keyof typeof languageDisplayMap] || 'ENG' }}
                   </span>
                 </div>
                 <p class="text-sm text-muted-foreground">
                   {{ formatDate(doc.createdAt) }} · {{ formatFileSize(doc.size) }} · {{ doc.description || 'No description' }}
                 </p>
-                <p class="text-sm flex items-center gap-1">
-                  <Percent class="h-4 w-4" />
-                  <span :class="getOcrConfidenceColor(doc.accuracy || 0)">
-                    Score OCR: {{ doc.accuracy || 0 }}%
-                  </span>
-                </p>
-                <p class="text-sm text-muted-foreground">
-                  Modifié le {{ formatDate(doc.updatedAt) }}
-                </p>
-                <div class="flex flex-wrap gap-1 mt-1">
-                  <span v-for="tag in doc.tags" :key="tag"
-                    class="px-2 py-0.5 bg-background rounded-full text-xs text-muted-foreground">
-                    {{ tag }}
-                  </span>
+                <div class="flex items-center gap-2">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    @click="toggleFavorite(doc.id)"
+                    :class="{ 'text-yellow-500': doc.isFavorite }"
+                    class="hover:text-yellow-500"
+                  >
+                    <Star
+                      class="h-4 w-4 mr-1"
+                      :class="doc.isFavorite ? 'fill-yellow-400 text-yellow-400' : ''"
+                    />
+                    {{ doc.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris' }}
+                  </Button>
+                  <Button variant="ghost" size="sm" @click="handleView(doc.id)">
+                    <Eye class="h-4 w-4 mr-1" />
+                    Voir
+                  </Button>
+                  <Button variant="ghost" size="sm" @click="handleDownload(doc.id)">
+                    <Download class="h-4 w-4 mr-1" />
+                    Télécharger
+                  </Button>
+                  <Button variant="ghost" size="sm" class="group relative" @click.stop="handleOcrClick(doc.id)">
+                    <Text class="h-4 w-4 mr-1" />
+                  </Button>
                 </div>
               </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                @click="toggleFavorite(doc.id)"
-                :class="{ 'text-yellow-500': doc.isFavorite }"
-                class="hover:text-yellow-500"
-              >
-                <Star
-                  class="h-4 w-4 mr-1"
-                  :class="doc.isFavorite ? 'fill-yellow-400 text-yellow-400' : ''"
-                />
-                {{ doc.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris' }}
-              </Button>
-              <Button variant="ghost" size="sm" @click="handleView(doc.id)">
-                <Eye class="h-4 w-4 mr-1" />
-                Voir
-              </Button>
-              <Button variant="ghost" size="sm" @click="handleDownload(doc.id)">
-                <Download class="h-4 w-4 mr-1" />
-                Télécharger
-              </Button>
-              <Button
-                v-if="doc.status === 'Deleted' || doc.isDeleted"
-                variant="ghost"
-                size="sm"
-                @click="handleRestore(doc.id)"
-              >
-                <FileText class="h-4 w-4 mr-1" />
-                Restaurer
-              </Button>
-              <Button
-                v-if="doc.status === 'Deleted' || doc.isDeleted"
-                variant="ghost"
-                size="sm"
-                @click="handlePermanentDelete(doc.id)"
-              >
-                <Trash2 class="h-4 w-4 mr-1" />
-                Supprimer définitivement
-              </Button>
-              <Button
-                v-else
-                variant="ghost"
-                size="sm"
-                class="hover:text-red-500"
-                @click="handleDelete(doc.id)"
-              >
-                <Trash2 class="h-4 w-4 mr-1" />
-                Supprimer
-              </Button>
             </div>
           </div>
         </div>
 
         <!-- Empty State -->
-        <div v-if="sortedAndFilteredDocuments.length === 0" class="text-center py-12">
+        <div v-if="documents.length === 0" class="text-center py-12">
           <FileText class="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <h3 class="text-lg font-medium">Aucun document trouvé</h3>
           <p class="text-muted-foreground">Essayez de modifier vos filtres ou d'ajouter de nouveaux documents.</p>
@@ -1450,7 +1906,14 @@ const selectAllDocuments = () => {
                       />
                       <div v-if="imageLoading" class="absolute inset-0 flex items-center justify-center bg-muted/50">
                         <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
-                    </div>
+                      </div>
+                      <!-- Fallback icon only shown on error -->
+                      <div class="absolute inset-0 flex items-center justify-center bg-muted/50 hidden">
+                        <div class="flex flex-col items-center">
+                          <ImageIcon class="h-12 w-12 text-muted-foreground mb-2" />
+                          <span class="text-sm text-muted-foreground">Impossible de charger l'image</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   
@@ -1487,73 +1950,140 @@ const selectAllDocuments = () => {
                       </div>
                       <div class="flex items-center gap-3 text-sm">
                         <Languages class="h-4 w-4 text-muted-foreground" />
-                        <p class="font-medium">{{ selectedDocument.language === 'fr' ? 'Français' : selectedDocument.language === 'en' || selectedDocument.language === 'english' ? 'Anglais' : 'Arabe' }}</p>
+                        <Select 
+                          :model-value="selectedDocument.language ? languageDisplayNameMap[selectedDocument.language as keyof typeof languageDisplayNameMap] : ''"
+                          @update:model-value="(value) => {
+                            if (!selectedDocument) return;
+                            const languageCode = reverseLanguageDisplayNameMap[value as keyof typeof reverseLanguageDisplayNameMap];
+                            if (!languageCode) return;
+                            selectedDocument.language = languageCode;
+                            handleMetadataUpdate(selectedDocument.id, {
+                              language: languageCode,
+                              topic: selectedDocument.topic || '',
+                              description: selectedDocument.description || '',
+                              tags: selectedDocument.tags || []
+                            });
+                          }"
+                        >
+                          <SelectTrigger class="w-[180px]">
+                            <SelectValue :placeholder="selectedDocument.language ? languageDisplayNameMap[selectedDocument.language as keyof typeof languageDisplayNameMap] : 'Sélectionner une langue'" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Français">Français</SelectItem>
+                            <SelectItem value="English">English</SelectItem>
+                            <SelectItem value="العربية">العربية</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div class="flex items-center gap-3 text-sm">
+                        <Percent class="h-4 w-4 text-muted-foreground" />
+                        <span :class="getOcrConfidenceColor(selectedDocument.accuracy || 0)">
+                          Score OCR: {{ selectedDocument.accuracy || 0 }}%
+                        </span>
+                      </div>
+                    </div>
+                    <div class="space-y-4">
+                      <div class="flex items-center gap-3 text-sm">
+                        <FileType2 class="h-4 w-4 text-muted-foreground" />
+                        <p class="font-medium">{{ selectedDocument.type }}</p>
+                      </div>
+                      <div class="flex items-center gap-3 text-sm">
+                        <Calendar class="h-4 w-4 text-muted-foreground" />
+                        <p class="font-medium">{{ formatDate(selectedDocument.createdAt) }}</p>
                       </div>
                     </div>
                   </div>
 
-                  <!-- OCR Information -->
-                  <div class="bg-muted rounded-lg p-4">
-                    <div class="flex items-center gap-3 mb-4">
-                      <Percent class="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p class="font-medium">{{ selectedDocument.accuracy || 0 }}%</p>
-                        <p class="text-xs text-muted-foreground">Score OCR</p>
-                      </div>
+                  <!-- Document Metadata -->
+                  <div class="space-y-4">
+                    <div class="space-y-2">
+                      <Label for="document-name">Nom du document</Label>
+                      <Input
+                        id="document-name"
+                        v-model="selectedDocument.name"
+                        class="w-full"
+                        @change="() => {
+                          if (!selectedDocument) return;
+                          handleMetadataUpdate(selectedDocument.id, {
+                            language: selectedDocument.language || '',
+                            topic: selectedDocument.topic || '',
+                            description: selectedDocument.description || '',
+                            tags: selectedDocument.tags || [],
+                            name: selectedDocument.name
+                          });
+                        }"
+                      />
+                    </div>
+
+                    <div class="space-y-2">
+                      <Label for="document-topic">Sujet</Label>
+                      <Input
+                        id="document-topic"
+                        v-model="selectedDocument.topic"
+                        class="w-full"
+                      />
+                    </div>
+
+                    <div class="space-y-2">
+                      <Label for="document-description">Description</Label>
+                      <Textarea
+                        id="document-description"
+                        v-model="selectedDocument.description"
+                        class="w-full"
+                        rows="3"
+                      />
+                    </div>
+
+                    <div class="space-y-2">
+                      <Label>Tags</Label>
+                      <div class="flex flex-wrap gap-2">
+                        <div
+                          v-for="(tag, index) in selectedDocument.tags"
+                          :key="index"
+                          class="flex items-center gap-1 px-2 py-1 bg-primary/10 rounded-full text-sm"
+                        >
+                          <span>{{ tag }}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            class="h-4 w-4 hover:bg-primary/20"
+                            @click="removeTag(index)"
+                          >
+                            <X class="h-3 w-3" />
+                          </Button>
                         </div>
-                        <div class="h-2 bg-muted-foreground/20 rounded-full overflow-hidden">
-                          <div
-                            class="h-full rounded-full transition-all"
-                            :class="{
-                              'bg-green-500': (selectedDocument.accuracy || 0) >= 95,
-                              'bg-yellow-500': (selectedDocument.accuracy || 0) >= 85 && (selectedDocument.accuracy || 0) < 95,
-                              'bg-red-500': (selectedDocument.accuracy || 0) > 0 && (selectedDocument.accuracy || 0) < 85
-                            }"
-                            :style="{ width: `${selectedDocument.accuracy || 0}%` }"
-                          ></div>
+                        <div class="flex items-center gap-2">
+                          <Input
+                            v-model="newTag"
+                            class="w-32"
+                            placeholder="Nouveau tag"
+                            @keydown.enter="addTag"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            @click="addTag"
+                          >
+                            <Plus class="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
 
-                  <!-- Tags -->
-                  <div v-if="selectedDocument.tags && selectedDocument.tags.length > 0" class="space-y-2">
-                    <div class="flex items-center gap-2">
-                      <FileType2 class="h-4 w-4 text-muted-foreground" />
-                      <span class="text-sm font-medium">Tags</span>
-                    </div>
-                    <div class="flex flex-wrap gap-1">
-                      <span v-for="tag in selectedDocument.tags" :key="tag"
-                        class="px-2 py-1 bg-muted rounded-full text-sm">
-                        {{ tag }}
-                      </span>
-                    </div>
-                  </div>
-
-                  <!-- Actions -->
-                  <div class="space-y-2">
-                    <div class="flex items-center gap-2">
-                      <Eye class="h-4 w-4 text-muted-foreground" />
-                      <span class="text-sm font-medium">Actions</span>
-                    </div>
-                    <div class="flex flex-col gap-2">
-                      <Button 
-                        class="justify-start" 
-                        variant="outline" 
-                        @click="toggleFavorite(selectedDocument.id)"
-                        :class="{ 'text-yellow-500': selectedDocument.isFavorite }"
+                    <!-- Save and Cancel Buttons -->
+                    <div class="flex justify-end gap-2 pt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        @click="resetMetadataChanges"
                       >
-                        <Star
-                          class="h-4 w-4 mr-2"
-                          :class="selectedDocument.isFavorite ? 'fill-yellow-400 text-yellow-400' : ''"
-                        />
-                        {{ selectedDocument.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris' }}
+                        Annuler
                       </Button>
-                      <Button class="justify-start" variant="outline">
-                        <Eye class="h-4 w-4 mr-2" />
-                        Voir le texte extrait
-                      </Button>
-                      <Button class="justify-start text-destructive" variant="outline" @click="handleDelete(selectedDocument.id)">
-                        <Trash2 class="h-4 w-4 mr-2" />
-                        Supprimer
+                      <Button
+                        size="sm"
+                        @click="saveMetadataChanges"
+                      >
+                        Enregistrer
                       </Button>
                     </div>
                   </div>
@@ -1653,14 +2183,20 @@ const selectAllDocuments = () => {
       <div class="grid gap-4 py-4">
         <div class="grid gap-2">
           <Label for="language">Langue</Label>
-          <Select v-model="documentMetadata.language">
+          <Select 
+            :model-value="selectedLanguage"
+            @update:model-value="(value) => {
+              if (!selectedLanguage) return;
+              selectedLanguage = String(value);
+            }"
+          >
             <SelectTrigger>
               <SelectValue placeholder="Sélectionnez une langue" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="French">Français</SelectItem>
-              <SelectItem value="English">English</SelectItem>
-              <SelectItem value="Arabic">العربية</SelectItem>
+              <SelectItem value="fra">Français</SelectItem>
+              <SelectItem value="eng">English</SelectItem>
+              <SelectItem value="ara">العربية</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1674,7 +2210,11 @@ const selectAllDocuments = () => {
         </div>
         <div class="grid gap-2">
           <Label for="tags">Tags</Label>
-          <Input id="tags" v-model="documentMetadata.tags" placeholder="Entrez les tags séparés par des virgules" />
+          <Input
+            id="tags"
+            v-model="documentMetadata.tags"
+            placeholder="Entrez les tags séparés par des virgules"
+          />
         </div>
         <div class="flex items-center space-x-2">
           <Checkbox id="favorite" v-model="documentMetadata.isFavorite" />
@@ -1687,4 +2227,179 @@ const selectAllDocuments = () => {
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <OCRPanel
+    v-if="showOcrPanel && selectedDocument"
+    :initial-content="selectedDocument.ocrText || ''"
+    :ocr-suggestions="[]"
+    :selected-document="selectedDocument"
+    @update:content="(content) => { if (selectedDocument) selectedDocument.ocrText = content }"
+    @save="handleOcrSave"
+    @close="showOcrPanel = false"
+    
+  >
+    <template #document-preview>
+              <!-- PDF Preview -->
+      <div v-if="selectedDocument.type?.toLowerCase().includes('pdf')" class="w-full h-full">
+                <iframe
+          :src="selectedDocument.documentUrl"
+                  class="w-full h-full"
+                  frameborder="0"
+                ></iframe>
+              </div>
+              
+              <!-- Image Preview -->
+      <div v-else-if="selectedDocument.type?.toLowerCase().includes('image')" class="w-full h-full">
+                <div class="relative w-full h-full">
+                  <img
+            :src="selectedDocument.documentUrl"
+                    :alt="selectedDocument.name"
+                    class="w-full h-full object-contain"
+            @error="handleImageError"
+                    @load="imageLoading = false"
+                    crossorigin="use-credentials"
+            referrerpolicy="no-referrer"
+          />
+                  <div v-if="imageLoading" class="absolute inset-0 flex items-center justify-center bg-muted/50">
+                    <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Default Preview -->
+              <div v-else class="w-full h-full flex flex-col items-center justify-center p-8">
+                <div class="w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center mb-4">
+                  <FileText class="h-12 w-12 text-gray-600 dark:text-gray-400" />
+                </div>
+        <span class="text-sm text-muted-foreground">{{ selectedDocument.type || 'Document' }}</span>
+              </div>
+    </template>
+  </OCRPanel>
+
 </template> 
+
+<style>
+/* Add these styles to your existing styles */
+.suggestion-dropdown {
+  position: absolute;
+  background: white;
+  border: 1px solid #ddd;
+  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  padding: 5px;
+  border-radius: 5px;
+}
+
+.suggestion-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 5px;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.suggestion-dropdown button:hover {
+  background: #f0f0f0;
+}
+
+/* Add confidence level colors */
+.confidence-low {
+  background-color: rgb(254 202 202 / 0.1);
+  text-decoration-color: rgb(239 68 68 / 0.3);
+  text-decoration-style: wavy;
+  text-decoration-line: underline;
+  cursor: pointer;
+}
+
+.confidence-medium {
+  background-color: rgb(254 249 195 / 0.1);
+  text-decoration-color: rgb(234 179 8 / 0.3);
+  text-decoration-style: wavy;
+  text-decoration-line: underline;
+  cursor: pointer;
+}
+
+.confidence-high {
+  background-color: rgb(220 252 231 / 0.1);
+  text-decoration-color: rgb(34 197 94 / 0.3);
+  text-decoration-style: wavy;
+  text-decoration-line: underline;
+  cursor: pointer;
+}
+
+/* Add styles for the text overlay */
+.text-overlay {
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: monospace;
+}
+
+.text-overlay span {
+  pointer-events: auto;
+}
+
+/* Add styles for the textarea */
+.editor-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+  resize: none;
+  background: transparent !important;
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  caret-color: rgb(var(--foreground)) !important;
+}
+
+.text-overlay {
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+  color: rgb(var(--foreground));
+  user-select: none;
+}
+
+.text-overlay span {
+  pointer-events: auto;
+}
+
+/* Update confidence level colors */
+.confidence-low {
+  background-color: rgb(254 202 202 / 0.1);
+  text-decoration: wavy underline rgb(239 68 68 / 0.5) 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.confidence-medium {
+  background-color: rgb(254 249 195 / 0.1);
+  text-decoration: wavy underline rgb(234 179 8 / 0.5) 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.confidence-high {
+  background-color: rgb(220 252 231 / 0.1);
+  text-decoration: wavy underline rgb(34 197 94 / 0.5) 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.suggestion-dropdown {
+  position: fixed;
+  background: white;
+  border: 1px solid rgb(var(--border));
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+  z-index: 50;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  min-width: 200px;
+  max-width: 300px;
+}
+
+.dark .suggestion-dropdown {
+  background: rgb(var(--background));
+  border-color: rgb(var(--border));
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
+}
+</style>

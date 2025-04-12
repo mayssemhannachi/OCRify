@@ -52,17 +52,20 @@ export interface DocumentSearchResultDto {
 }
 
 export interface DocumentSearchDto {
+  searchTerm?: string;
+  language?: string;
+  topic?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  type?: string;
+  documentType?: number;
   page?: number;
   pageSize?: number;
-  includeDeleted?: boolean;
   includeDeletedNum?: number;
-  searchTerm?: string;
-  type?: string;
-  language?: string;
-  status?: number;
-  dateFrom?: string | Date;
-  dateTo?: string | Date;
   favoritesOnly?: boolean;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface DashboardDataDto {
